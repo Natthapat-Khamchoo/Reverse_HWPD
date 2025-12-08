@@ -223,8 +223,8 @@ export default function App() {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
-            <MapIcon className="text-blue-600" size={32} />
-            ศูนย์ปฏิบัติการจราจร (Interactive Dashboard)
+            <img className="https://cib.go.th/backend/uploads/medium_logo_cib_4_2x_9f2da10e9f_a7828c9ca0.png" size={32} />
+            ศูนย์ปฏิบัติการจราจร บก.ทล. (Reverse Dashboard)
           </h1>
           <p className="text-slate-500 mt-1 text-sm flex items-center gap-2">
             <Clock size={14} /> ข้อมูลล่าสุด: {loading ? 'กำลังโหลด...' : `${rawData.length} รายการ`}
