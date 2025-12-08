@@ -22,21 +22,17 @@ import {
 import { Doughnut, Bar } from 'react-chartjs-2';
 
 // -----------------------------------------------------------------------------
-// ⚠️ ส่วนที่ 1: การตั้งค่าแผนที่ GIS (สำหรับนำไปใช้จริงบน Vercel)
+// ⚠️ ส่วนที่ 1: การตั้งค่าแผนที่ GIS (เปิดใช้งานแล้ว)
 // -----------------------------------------------------------------------------
-// เมื่อติดตั้ง library แล้ว: npm install leaflet react-leaflet
-// ให้ UNCOMMENT (ลบ // ออก) บรรทัดข้างล่างนี้ เพื่อใช้แผนที่จริง:
-
-// import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
-// import 'leaflet/dist/leaflet.css';
-
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
+import 'leaflet/dist/leaflet.css';
 // -----------------------------------------------------------------------------
 
 // Register ChartJS components
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 // --- Configuration ---
-// ⚠️ ใส่ Link CSV จาก Google Sheet ที่นี่
+// Link CSV ของคุณ
 const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?output=csv"; 
 
 // --- Constants ---
@@ -48,11 +44,9 @@ const DIVISION_COLORS = {
 const ORG_STRUCTURE = { "1": 6, "2": 6, "3": 5, "4": 5, "5": 6, "6": 6, "7": 5, "8": 4 };
 
 // Mock Data
-//const MOCK_DATA = [
-  //{ id: 1, date: '2025-12-12', time: '08:30', div: '1', st: '1', type: 'อุบัติเหตุใหญ่', road: 'ทล.1', km: '55', dir: 'ขาออก', traffic: 'หยุดนิ่ง', tailback: '2 กม.', lat: 14.215, lng: 100.700 },
-  //{ id: 2, date: '2025-12-12', time: '09:15', div: '8', st: '2', type: 'จราจรติดขัด', road: 'ทล.9', km: '12', dir: 'มุ่งหน้าบางปะอิน', traffic: 'หนาแน่น', tailback: '500 ม.', lat: 13.980, lng: 100.750 },
-  //{ id: 3, date: '2025-12-12', time: '10:00', div: '6', st: '1', type: 'เหตุการณ์ปกติ', road: 'ทล.2', km: '102', dir: 'ขาเข้า', traffic: 'คล่องตัว', tailback: '-', lat: 14.850, lng: 101.500 },
-//];
+const MOCK_DATA = [
+  { id: 1, date: '2025-12-12', time: '08:30', div: '1', st: '1', type: 'อุบัติเหตุใหญ่', road: 'ทล.1', km: '55', dir: 'ขาออก', traffic: 'หยุดนิ่ง', tailback: '2 กม.', lat: 14.215, lng: 100.700 },
+];
 
 // --- Helper Functions ---
 const parseCSV = (text) => {
@@ -140,17 +134,8 @@ const KPI_Card = ({ title, value, subtext, icon: Icon, colorClass, bgClass }) =>
   </div>
 );
 
-// --- Simplified Map (Preview) ---
-const SimplifiedMap = ({ data }) => {
-  if (data.length === 0) return <div className="flex items-center justify-center h-full text-gray-400">ไม่มีข้อมูลเหตุการณ์แสดงผลบนแผนที่</div>;
-  // ... (Code แผนที่แบบย่อเดิม) ...
-  // เพื่อประหยัดพื้นที่ ผมละ code ส่วนนี้ไว้ ถ้าคุณใช้ Leaflet Map จริงแล้ว ไม่ต้องใช้ส่วนนี้ครับ
-  // แต่ถ้ายังใช้ Preview ให้ copy โค้ด SimplifiedMap เดิมมาใส่ครับ
-  return <div className="flex items-center justify-center h-full text-gray-500 bg-slate-50 border border-dashed rounded">แผนที่ (Preview Mode)</div>;
-};
-
 // -----------------------------------------------------------------------------
-//⚠️ ส่วนที่ 2: GIS Map Component (ใช้จริง)
+// ⚠️ ส่วนที่ 2: GIS Map Component (เปิดใช้งานแล้ว)
 // -----------------------------------------------------------------------------
 
 const MapAutoFit = ({ markers }) => {
@@ -166,8 +151,11 @@ const MapAutoFit = ({ markers }) => {
 };
 
 const LeafletMapComponent = ({ data }) => {
+  // Default Center (Bangkok)
+  const defaultCenter = [13.75, 100.5];
+  
   return (
-    <MapContainer center={[13.75, 100.5]} zoom={6} style={{ height: '100%', width: '100%' }}>
+    <MapContainer center={defaultCenter} zoom={6} style={{ height: '100%', width: '100%' }}>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
       {data.map(item => (
         <CircleMarker key={item.id} center={[item.lat, item.lng]} radius={8} pathOptions={{ color: 'white', fillColor: DIVISION_COLORS[item.div] || '#9CA3AF', fillOpacity: 0.8, weight: 2 }}>
@@ -190,7 +178,6 @@ const LeafletMapComponent = ({ data }) => {
     </MapContainer>
   );
 };
-
 
 export default function App() {
   const [rawData, setRawData] = useState([]);
@@ -280,10 +267,10 @@ export default function App() {
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
             <img 
-      src="https://cib.go.th/backend/uploads/medium_logo_cib_4_2x_9f2da10e9f_a7828c9ca0.png" 
-      alt="Logo" 
-      className="w-12 h-12" 
-    />
+              src="https://cib.go.th/backend/uploads/medium_logo_cib_4_2x_9f2da10e9f_a7828c9ca0.png" 
+              alt="Logo" 
+              className="w-12 h-12" 
+            />
             ศูนย์ปฏิบัติการจราจร บก.ทล. (Reverse Dashboard)
           </h1>
           <p className="text-slate-500 mt-1 text-sm flex items-center gap-2">
@@ -325,9 +312,8 @@ export default function App() {
         {/* Map Section - ใช้ visualData (ไม่แสดงจุดปกติ) */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-[450px] relative z-0">
           
-          {/* ⚠️ เปลี่ยน <SimplifiedMap ... /> เป็น <LeafletMapComponent ... /> เมื่อนำไปใช้จริง และ Uncomment Component ด้านบน */}
-          <SimplifiedMap data={visualData} />
-          {/* <LeafletMapComponent data={visualData} /> */}
+          {/* ✅ เปิดใช้งานแผนที่จริงแล้ว */}
+          <LeafletMapComponent data={visualData} />
 
         </div>
 
