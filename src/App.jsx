@@ -328,25 +328,3 @@ export default function App() {
     </div>
   );
 }
-```
-
-3.  **สำคัญที่สุด:** อย่าลืมเอา Link CSV จาก Google Sheet ไปใส่ในบรรทัด:
-    `const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?output=csv";`
-4.  ทดสอบรันดูในเครื่องด้วยคำสั่ง:
-    ```bash
-    npm run dev
-    ```
-
----
-
-### ☁️ ขั้นตอนที่ 4: นำขึ้น GitHub (Source Control)
-
-1.  สมัครบัญชี [GitHub.com](https://github.com) และกดสร้าง **New Repository** (ตั้งชื่อเช่น `traffic-dashboard` และเลือก Public หรือ Private ก็ได้)
-2.  กลับมาที่ Terminal ในโปรเจกต์ของคุณ พิมพ์คำสั่งทีละบรรทัด:
-    ```bash
-    git init
-    git add .
-    git commit -m "Initial dashboard setup"
-    git branch -M main
-    git remote add origin https://github.com/ชื่อUserของคุณ/traffic-dashboard.git
-    git push -u origin main
