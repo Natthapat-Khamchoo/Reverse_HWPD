@@ -331,7 +331,7 @@ export default function App() {
 ```
 
 3.  **สำคัญที่สุด:** อย่าลืมเอา Link CSV จาก Google Sheet ไปใส่ในบรรทัด:
-    `const GOOGLE_SHEET_CSV_URL = "ใส่ลิงก์ของคุณที่นี่";`
+    `const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?output=csv";`
 4.  ทดสอบรันดูในเครื่องด้วยคำสั่ง:
     ```bash
     npm run dev
