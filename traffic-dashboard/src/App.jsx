@@ -10,8 +10,9 @@ import {
   Siren,       
   CarFront,    
   Route,
-  ShieldAlert, // ไอคอนใหม่สำหรับจับกุม
-  ShieldCheck  // ไอคอนใหม่สำหรับด่าน
+  ShieldAlert, 
+  ShieldCheck,
+  CheckCircle2 // ไอคอนสำหรับสถานะปกติ
 } from 'lucide-react';
 import {
   Chart as ChartJS,
@@ -27,7 +28,7 @@ import { Doughnut, Bar } from 'react-chartjs-2';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
-// --- ตั้งค่า ChartJS (Dark Theme) ---
+// --- ตั้งค่า ChartJS ---
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 ChartJS.defaults.color = '#cbd5e1'; 
 ChartJS.defaults.borderColor = '#334155'; 
@@ -68,7 +69,7 @@ const parseCSV = (text) => {
 
 const processSheetData = (rawData) => {
   return rawData.map((row, index) => {
-    // 1. จัดการวันที่เวลา
+    // 1. Date/Time
     let dateStr = '', timeStr = '';
     const dateTimeRaw = row['วันที่ เวลา'] || row['Timestamp'] || '';
     if (dateTimeRaw) {
@@ -84,7 +85,7 @@ const processSheetData = (rawData) => {
       } else { dateStr = dateTimeRaw; timeStr = '00:00'; }
     }
 
-    // 2. จัดการหน่วยงาน
+    // 2. Unit
     let div = '1', st = '1';
     const unitRaw = row['หน่วยงาน'] || '';
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/) || unitRaw.match(/\/(\d+)/); 
@@ -92,7 +93,7 @@ const processSheetData = (rawData) => {
     const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/) || unitRaw.match(/^(\d+)\//);
     if (stMatch) st = stMatch[1];
 
-    // 3. จัดการพิกัด
+    // 3. Location
     let lat = parseFloat(row['Latitude'] || row['พิกัด']?.split(',')[0]);
     let lng = parseFloat(row['Longitude'] || row['พิกัด']?.split(',')[1]);
     if (isNaN(lat) || isNaN(lng)) {
@@ -100,7 +101,7 @@ const processSheetData = (rawData) => {
        lng = 100.50 + (Math.random() - 0.5) * 0.1;
     }
 
-    // 4. Logic จำแนกประเภท
+    // 4. Categorization
     let mainCategory = 'ทั่วไป';
     let detailText = '';
     let statusColor = 'bg-slate-500';
@@ -113,34 +114,31 @@ const processSheetData = (rawData) => {
     const traffic = row['สภาพจราจร'] || '';
     const tailback = row['ท้ายแถว'] || '';
 
+    // Logic จัดหมวดหมู่
     if (majorAccident && majorAccident !== '-') {
-      mainCategory = 'อุบัติเหตุใหญ่';
-      detailText = majorAccident;
-      statusColor = 'bg-red-600';
+      mainCategory = 'อุบัติเหตุใหญ่'; detailText = majorAccident; statusColor = 'bg-red-600';
     } else if (arrest && arrest !== '-') {
-      mainCategory = 'จับกุม';
-      detailText = arrest;
-      statusColor = 'bg-purple-600';
+      mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
     } else if (checkpoint && checkpoint !== '-') {
-      mainCategory = 'ว.43';
-      detailText = checkpoint;
-      statusColor = 'bg-indigo-500';
+      mainCategory = 'ว.43'; detailText = checkpoint; statusColor = 'bg-indigo-500';
     } else if (generalAccident && generalAccident !== '-') {
-      mainCategory = 'อุบัติเหตุทั่วไป';
-      detailText = generalAccident;
-      statusColor = 'bg-orange-500';
+      mainCategory = 'อุบัติเหตุทั่วไป'; detailText = generalAccident; statusColor = 'bg-orange-500';
     } else if (specialLane && specialLane !== '-') {
-      mainCategory = 'ช่องทางพิเศษ';
-      detailText = specialLane;
-      statusColor = 'bg-green-500';
-    } else if (traffic && (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง'))) {
-      mainCategory = 'จราจรติดขัด';
-      detailText = `ท้ายแถว: ${tailback}`;
-      statusColor = 'bg-yellow-500';
-    } else {
-      mainCategory = 'ปกติ';
-      detailText = traffic;
-      statusColor = 'bg-slate-500';
+      // ตรวจสอบ keyword ว่าเปิดหรือปิด
+      if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
+          mainCategory = 'ปิดช่องทางพิเศษ';
+      } else {
+          mainCategory = 'ช่องทางพิเศษ';
+      }
+      detailText = specialLane; statusColor = 'bg-green-500';
+    } else if (traffic) {
+      if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง')) {
+          mainCategory = 'จราจรติดขัด'; detailText = `ท้ายแถว: ${tailback}`; statusColor = 'bg-yellow-500';
+      } else if (traffic.includes('คล่องตัว') || traffic.includes('ปกติ')) {
+          mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500';
+      } else {
+          mainCategory = 'สภาพจราจร'; detailText = traffic; statusColor = 'bg-slate-500';
+      }
     }
 
     return {
@@ -156,11 +154,9 @@ const processSheetData = (rawData) => {
       traffic_status: traffic,
       tailback: tailback,
       special_lane: specialLane,
-      arrest_info: arrest,
-      accident_info: generalAccident || majorAccident,
-      checkpoint_info: checkpoint,
       lat: lat, lng: lng,
-      colorClass: statusColor
+      colorClass: statusColor,
+      timestamp: new Date(`${dateStr}T${timeStr}`).getTime() // ใช้สำหรับเรียงลำดับ
     };
   });
 };
@@ -200,7 +196,7 @@ const LeafletMapComponent = ({ data }) => {
     if (category.includes('จับกุม')) return '#A855F7';
     if (category.includes('ว.43')) return '#6366F1';
     if (category.includes('ช่องทางพิเศษ')) return '#22C55E'; 
-    if (category.includes('จราจร')) return '#EAB308'; 
+    if (category.includes('จราจรติดขัด')) return '#EAB308'; 
     return '#94A3B8'; 
   };
 
@@ -216,7 +212,7 @@ const LeafletMapComponent = ({ data }) => {
                 <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time}</span>
               </strong>
               <div className="space-y-1">
-                <div className="text-xs font-bold text-slate-600">ประเภท: {item.category}</div>
+                <div className="text-xs font-bold text-slate-600">สถานะ: {item.category}</div>
                 <div className="text-sm text-slate-800">{item.detail || '-'}</div>
                 <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1">
                   ทล.{item.road} กม.{item.km} ({item.dir})
@@ -234,19 +230,16 @@ const LeafletMapComponent = ({ data }) => {
 export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Date State
   const todayStr = getThaiDateStr();
+  
+  // Filters
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(todayStr);
   const [customEnd, setCustomEnd] = useState(todayStr);
-
-  // Filters
   const [filterDiv, setFilterDiv] = useState('');
-  const [filterSt, setFilterSt] = useState(''); // เพิ่ม Filter ส.ทล.
+  const [filterSt, setFilterSt] = useState(''); 
   const [filterCategory, setFilterCategory] = useState('');
 
-  // คำนวณช่วงวัน
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date();
     let start = new Date(today);
@@ -274,57 +267,78 @@ export default function App() {
     fetchData();
   }, []);
 
-  // Filter Logic
-  const tableData = useMemo(() => {
+  // 1. Log Data (สำหรับตารางด้านล่าง - แสดงทุกอย่าง)
+  const logTableData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
       return passDate && 
         (!filterDiv || item.div === filterDiv) && 
-        (!filterSt || item.st === filterSt) && // กรอง ส.ทล.
+        (!filterSt || item.st === filterSt) &&
         (!filterCategory || item.category === filterCategory);
-    });
+    }).sort((a,b) => b.timestamp - a.timestamp); // เรียงใหม่ไปเก่าสำหรับตาราง
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, filterCategory]);
 
-  // --- Statistics for Charts ---
+  // 2. Active State Data (สำหรับแผนที่และกราฟ - ตัดจบเมื่อสถานะปกติ)
+  const activeVisualData = useMemo(() => {
+    // ต้องเรียงจาก เก่า -> ใหม่ เพื่อไล่ลำดับเหตุการณ์
+    const sortedLog = [...logTableData].sort((a, b) => a.timestamp - b.timestamp);
+    
+    const activeStates = new Map(); // Key: LocationID -> Value: Event
+    const otherEvents = []; // อุบัติเหตุ/จับกุม เก็บหมด (เพราะมันเป็น point event ไม่ใช่ state)
+
+    sortedLog.forEach(row => {
+        // สร้าง Unique Key สำหรับสถานที่: กก-สถานี-ถนน-ทิศทาง
+        // (ไม่รวม กม. เพราะบางทีแจ้งกม.คลาดเคลื่อน แต่คือจุดเดียวกัน ให้ทับกันไปเลยในโซนนั้น)
+        const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+        const uniqueKey = `${locKey}-${row.km}`; // สำหรับอุบัติเหตุ ใช้ key ละเอียดหน่อย
+
+        if (row.category === 'จราจรติดขัด') {
+            activeStates.set(locKey, row); // Update สถานะเป็นติดขัด
+        } else if (row.category === 'จราจรปกติ') {
+            activeStates.delete(locKey); // Clear สถานะติดขัดออก
+        } else if (row.category === 'ช่องทางพิเศษ') {
+            activeStates.set(`LANE-${locKey}`, row); // Update สถานะเปิดเลน
+        } else if (row.category === 'ปิดช่องทางพิเศษ') {
+            activeStates.delete(`LANE-${locKey}`); // Clear สถานะเปิดเลนออก
+        } else {
+            // พวกอุบัติเหตุ จับกุม ว.43 เก็บไว้แสดงผลตลอด (ในช่วงเวลานั้น)
+            otherEvents.push(row);
+        }
+    });
+
+    return [...otherEvents, ...activeStates.values()];
+  }, [logTableData]);
+
+
+  // Stats for Charts (ใช้ Active Data)
   const divisionStats = useMemo(() => {
     const stats = { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0 };
-    tableData.forEach(d => { if (stats[d.div] !== undefined) stats[d.div]++; });
+    activeVisualData.forEach(d => { if (stats[d.div] !== undefined) stats[d.div]++; });
     return stats;
-  }, [tableData]);
+  }, [activeVisualData]);
 
   const categoryStats = useMemo(() => {
     const counts = {}; 
-    tableData.forEach(d => { 
-      // จัดกลุ่มชื่อให้สั้นลงสำหรับกราฟ
+    activeVisualData.forEach(d => { 
+      // รวมชื่อกลุ่มสำหรับกราฟ
       let key = d.category;
+      if (key.includes('จราจร')) key = 'จราจรติดขัด'; // รวมกลุ่มกราฟ
       counts[key] = (counts[key] || 0) + 1; 
     });
     return counts;
-  }, [tableData]);
+  }, [activeVisualData]);
 
   // Chart Config
   const divChartData = {
     labels: Object.keys(divisionStats).map(k => `กก.${k}`),
-    datasets: [{
-      label: 'จำนวนเหตุ',
-      data: Object.values(divisionStats),
-      backgroundColor: '#3B82F6',
-      borderRadius: 4,
-      barThickness: 15
-    }]
+    datasets: [{ label: 'จำนวน', data: Object.values(divisionStats), backgroundColor: '#3B82F6', borderRadius: 4, barThickness: 15 }]
   };
-
   const catChartData = {
     labels: Object.keys(categoryStats),
-    datasets: [{
-      data: Object.values(categoryStats),
-      backgroundColor: ['#EF4444', '#A855F7', '#6366F1', '#F97316', '#22C55E', '#EAB308', '#64748B'],
-      borderWidth: 0
-    }]
+    datasets: [{ data: Object.values(categoryStats), backgroundColor: ['#EF4444', '#A855F7', '#6366F1', '#F97316', '#22C55E', '#EAB308'], borderWidth: 0 }]
   };
 
-  // Station Options (Updated dynamically)
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
   return (
@@ -344,7 +358,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Filters (Compact Row) */}
+      {/* Filters */}
       <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 flex flex-wrap gap-3 items-end">
           <div className="w-full sm:w-auto min-w-[160px]">
              <label className="text-[10px] text-yellow-400 font-bold mb-1 block"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
@@ -369,78 +383,48 @@ export default function App() {
                {stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}
              </select>
           </div>
-          <div className="w-full sm:w-auto min-w-[150px]">
-             <label className="text-[10px] text-slate-400 font-bold mb-1 block">หมวดหมู่</label>
-             <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterCategory} onChange={e => setFilterCategory(e.target.value)}>
-               <option value="">ทั้งหมด</option>
-               <option value="อุบัติเหตุใหญ่">อุบัติเหตุใหญ่</option>
-               <option value="จับกุม">จับกุม/เมา</option>
-               <option value="ว.43">ว.43 (ตั้งด่าน)</option>
-               <option value="ช่องทางพิเศษ">ช่องทางพิเศษ</option>
-             </select>
-          </div>
       </div>
 
-      {/* KPI Cards (Split Arrest & Checkpoint) */}
+      {/* KPI Cards (Active States Only) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-        <KPI_Card title="ทั้งหมด" value={tableData.length} subtext="รายการ" icon={ListChecks} accentColor="bg-slate-400" />
-        <KPI_Card title="อุบัติเหตุ" value={tableData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
-        <KPI_Card title="จับกุม" value={tableData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
-        <KPI_Card title="จุดตรวจ ว.43" value={tableData.filter(d => d.category === 'ว.43').length} subtext="ปฏิบัติงาน" icon={ShieldCheck} accentColor="bg-indigo-500" />
-        <KPI_Card title="ช่องทางพิเศษ" value={tableData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="อำนวยจราจร" icon={Route} accentColor="bg-green-500" />
+        <KPI_Card title="Active Events" value={activeVisualData.length} subtext="เหตุการณ์คงค้างปัจจุบัน" icon={ListChecks} accentColor="bg-slate-400" />
+        <KPI_Card title="อุบัติเหตุ" value={activeVisualData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
+        <KPI_Card title="จับกุม" value={activeVisualData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
+        <KPI_Card title="รถติดขัด" value={activeVisualData.filter(d => d.category === 'จราจรติดขัด').length} subtext="วิกฤต/หนาแน่น" icon={TrafficCone} accentColor="bg-yellow-500" />
+        <KPI_Card title="ช่องทางพิเศษ" value={activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="เปิดใช้งานอยู่" icon={Route} accentColor="bg-green-500" />
       </div>
 
-      {/* Main Content Grid: Map & Charts */}
+      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 mb-4">
-        
-        {/* Map Section (Reduced Size: 40% width on large screens) */}
+        {/* Map (Active States) */}
         <div className="lg:col-span-4 bg-slate-800 rounded-lg border border-slate-700 h-[350px] lg:h-[400px] relative overflow-hidden">
-          <div className="absolute top-2 left-2 z-[400] bg-slate-900/80 px-2 py-0.5 rounded border border-slate-600 text-[10px] text-yellow-400 font-mono">MAP VIEW</div>
-          <LeafletMapComponent data={tableData} />
+          <div className="absolute top-2 left-2 z-[400] bg-slate-900/80 px-2 py-0.5 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-1">
+             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> CURRENT STATUS VIEW
+          </div>
+          <LeafletMapComponent data={activeVisualData} />
         </div>
 
-        {/* Charts Section (Expanded: 60% width) */}
+        {/* Charts (Active Stats) */}
         <div className="lg:col-span-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-           {/* Graph 1: Events by Division */}
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full">
-             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">สถิติรายกองกำกับการ</h3>
+             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">สถิติเหตุการณ์คงค้าง (รายกองฯ)</h3>
              <div className="flex-1 w-full h-full relative">
-               <Bar 
-                 data={divChartData} 
-                 options={{ 
-                   maintainAspectRatio: false, 
-                   plugins: { legend: { display: false } }, 
-                   scales: { 
-                     x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } },
-                     y: { ticks: { color: '#94a3b8', stepSize: 1 }, grid: { color: '#334155' } } 
-                   } 
-                 }} 
-               />
+               <Bar data={divChartData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } }, y: { ticks: { color: '#94a3b8', stepSize: 1 }, grid: { color: '#334155' } } } }} />
              </div>
            </div>
-
-           {/* Graph 2: Category Breakdown */}
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full">
-             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">สัดส่วนประเภทเหตุการณ์</h3>
+             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">สัดส่วนประเภทเหตุการณ์ (ปัจจุบัน)</h3>
              <div className="flex-1 w-full h-full relative flex items-center justify-center">
-               <Doughnut 
-                 data={catChartData} 
-                 options={{ 
-                   maintainAspectRatio: false, 
-                   plugins: { 
-                     legend: { position: 'right', labels: { color: '#cbd5e1', boxWidth: 8, font: { size: 10 } } } 
-                   } 
-                 }} 
-               />
+               <Doughnut data={catChartData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#cbd5e1', boxWidth: 8, font: { size: 10 } } } } }} />
              </div>
            </div>
         </div>
       </div>
 
-      {/* Data Table */}
+      {/* Log Table (History) */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
-          <h3 className="text-white text-xs font-bold flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> รายงานสด (Live Feed)</h3>
+          <h3 className="text-white text-xs font-bold flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> บันทึกเหตุการณ์ทั้งหมด (History Log)</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left text-slate-300">
@@ -454,16 +438,17 @@ export default function App() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-700">
-              {tableData.length > 0 ? tableData.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-700/50 transition-colors">
+              {logTableData.length > 0 ? logTableData.map((item, idx) => (
+                <tr key={idx} className={`hover:bg-slate-700/50 transition-colors ${item.category.includes('ปกติ') || item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
                   <td className="px-4 py-2 font-mono text-yellow-400 align-top">{item.time} น.<div className="text-[9px] text-slate-500">{item.date}</div></td>
                   <td className="px-4 py-2 align-top"><span className="bg-slate-900 border border-slate-600 px-1.5 py-0.5 rounded text-[10px]">ส.ทล.{item.st} กก.{item.div}</span></td>
                   <td className="px-4 py-2 align-top">
-                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${item.colorClass}`}>{item.category}</span>
+                    <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${item.colorClass}`}>
+                       {item.category === 'จราจรปกติ' ? <span className="flex items-center gap-1"><CheckCircle2 size={10}/> เข้าสู่ภาวะปกติ</span> : item.category}
+                    </span>
                   </td>
                   <td className="px-4 py-2 align-top">
                     <div className="font-medium text-slate-200">{item.detail || '-'}</div>
-                    {item.tailback && item.tailback !== '-' && <div className="text-[10px] text-yellow-500">ท้ายแถว: {item.tailback}</div>}
                   </td>
                   <td className="px-4 py-2 align-top text-[10px] font-mono text-slate-400">
                     <div>ทล.{item.road} กม.{item.km}</div>
