@@ -3,7 +3,7 @@ import {
   RotateCcw, ListChecks, AlertTriangle, TrafficCone, 
   Monitor, Calendar, Siren, CarFront, Route, 
   ShieldAlert, ShieldCheck, CheckCircle2, ChevronDown, MapPin,
-  ArrowRightCircle, StopCircle, Clock
+  ArrowRightCircle, StopCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS, ArcElement, Tooltip, Legend, 
@@ -33,11 +33,12 @@ const EVENT_CATEGORIES = [
 ];
 
 // -----------------------------------------------------------------------------
-// UI Component
+// UI Component: MultiSelect Dropdown
 // -----------------------------------------------------------------------------
 const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setIsOpen(false);
@@ -45,10 +46,12 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
   const toggleOption = (option) => {
     if (selected.includes(option)) onChange(selected.filter(item => item !== option));
     else onChange([...selected, option]);
   };
+
   return (
     <div className="relative w-full" ref={dropdownRef}>
       <label className="text-[10px] text-slate-400 font-bold mb-1 block">{label}</label>
@@ -73,32 +76,39 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Logic: Date & Time Handling
+// Core Logic: CSV & Date/Time
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
-// Convert various time formats to 24HR HH:MM
+// 🔥 FIXED: 24-Hour Time Converter (Handles AM/PM correctly)
 const formatTime24 = (rawTime) => {
   if (!rawTime) return '00:00';
-  let t = rawTime.trim().toLowerCase();
   
-  // Check for AM/PM
-  const isPM = t.includes('pm') || t.includes('p.m');
-  const isAM = t.includes('am') || t.includes('a.m');
+  const t = rawTime.trim().toUpperCase();
   
-  // Remove non-digit/colon chars
-  t = t.replace(/[^\d:]/g, ''); 
+  // Detect AM/PM
+  const isPM = t.includes('PM') || t.includes('P.M');
+  const isAM = t.includes('AM') || t.includes('A.M');
   
-  let [h, m] = t.split(':');
+  // Extract numbers only
+  const timeOnly = t.replace(/[^\d:]/g, ''); 
+  let [h, m] = timeOnly.split(':');
+  
   if (!h) return '00:00';
   if (!m) m = '00';
   
-  let hh = parseInt(h);
-  // Convert 12h to 24h
+  let hh = parseInt(h, 10);
+  const mm = parseInt(m.substring(0, 2), 10); // Ensure we take only first 2 digits of minutes
+
+  // Convert to 24H
   if (isPM && hh < 12) hh += 12;
   if (isAM && hh === 12) hh = 0;
   
-  return `${hh.toString().padStart(2, '0')}:${m.toString().substring(0, 2).padStart(2, '0')}`;
+  // Safety clamp
+  if (hh > 23) hh = 0;
+  if (mm > 59) m = 0;
+
+  return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`;
 };
 
 const parseCSV = (text) => {
@@ -137,6 +147,7 @@ const processSheetData = (rawData, sourceFormat) => {
       return '';
     };
 
+    // --- 1. Extraction ---
     let dateStr = '', timeStr = '00:00';
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const dateRaw = getVal(['วันที่', 'date']);
@@ -147,46 +158,40 @@ const processSheetData = (rawData, sourceFormat) => {
     const checkStr = (timestampRaw + dateRaw);
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
+    // --- 2. Date & Time Parsing (Fixed) ---
     try {
-        // --- Smart Date Parsing ---
-        let dPart = '';
+        let fullTimeStr = '';
+
         if (timestampRaw) {
+            // Split by space to separate date and time+AM/PM
             const parts = timestampRaw.split(' ');
-            dPart = parts[0];
-            if (parts.length >= 2) timeStr = parts[1];
+            if (parts.length >= 1) {
+                let dPart = parts[0];
+                if (dPart.includes('/')) {
+                    const [d, m, y] = dPart.split('/');
+                    let yr = parseInt(y); if (yr > 2400) yr -= 543; 
+                    dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+                } else if(dPart.includes('-')) { dateStr = dPart; }
+                
+                // Grab everything after the date as time (to catch "3:30:00 PM")
+                if (parts.length >= 2) {
+                    fullTimeStr = timestampRaw.substring(dPart.length).trim();
+                }
+            }
         } else if (dateRaw) {
-            dPart = dateRaw;
-            if (timeRaw) timeStr = timeRaw;
+             if (dateRaw.includes('/')) {
+                const [d, m, y] = dateRaw.split('/');
+                let yr = parseInt(y); if (yr > 2400) yr -= 543;
+                dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+             } else { dateStr = dateRaw; }
+             
+             if (timeRaw) fullTimeStr = timeRaw;
         }
 
-        if (dPart.includes('/')) {
-            const [p1, p2, p3] = dPart.split('/');
-            let d = parseInt(p1);
-            let m = parseInt(p2);
-            let y = parseInt(p3);
-
-            // AUTO-DETECT: If Month > 12, Swap Day/Month
-            if (m > 12 && d <= 12) {
-                const temp = d; d = m; m = temp;
-            }
-
-            // Thai Year Convert
-            if (y > 2400) y -= 543;
-
-            // Strict check
-            if (m > 0 && m <= 12 && d > 0 && d <= 31) {
-                dateStr = `${y}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-            }
-        } else if (dPart.includes('-')) {
-            dateStr = dPart; // Assume YYYY-MM-DD
-        }
-
-        // --- 24 HR Time Conversion ---
-        timeStr = formatTime24(timeStr);
+        // Apply the 24H Fixer
+        if (fullTimeStr) timeStr = formatTime24(fullTimeStr);
 
     } catch (e) { return null; }
-    
-    // Final Valid Date Check
     if (!dateStr || dateStr.length < 8) return null;
 
     let div = '1', st = '1';
@@ -243,7 +248,7 @@ const processSheetData = (rawData, sourceFormat) => {
              if (specialLane.includes('เปิด') || specialLane.includes('เริ่ม')) {
                 mainCategory = 'ช่องทางพิเศษ'; 
              } 
-             else if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
+             else if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด') || specialLane.includes('ยุติ')) {
                 mainCategory = 'ปิดช่องทางพิเศษ'; 
              } 
              else {
@@ -298,7 +303,7 @@ const LeafletMapComponent = ({ data }) => {
           <Popup className="digital-popup">
             <div className="font-sans text-sm min-w-[200px] text-slate-800">
               <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
-                <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time}</span>
+                <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time} น.</span>
               </strong>
               <div className="mb-2"><div className="text-xs font-bold text-slate-500 mb-1">{item.category}</div><div className="text-sm font-medium text-slate-800">{item.detail}</div></div>
               <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between items-center"><span className="flex items-center gap-1"><MapPin size={10}/> ทล.{item.road} กม.{item.km}</span><span className="font-bold">{item.dir}</span></div>
@@ -488,7 +493,7 @@ export default function App() {
             <tbody className="divide-y divide-slate-700">
               {logTableData.length > 0 ? logTableData.map((item, idx) => (
                 <tr key={idx} className={`hover:bg-slate-700/50 transition-colors ${item.category.includes('ปกติ') || item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
-                  <td className="px-4 py-2 font-mono text-yellow-400 align-top">{item.time}<div className="text-[9px] text-slate-500">{item.date}</div></td>
+                  <td className="px-4 py-2 font-mono text-yellow-400 align-top">{item.time} น.<div className="text-[9px] text-slate-500">{item.date}</div></td>
                   <td className="px-4 py-2 align-top"><span className="bg-slate-900 border border-slate-600 px-1.5 py-0.5 rounded text-[10px]">ส.ทล.{item.st} กก.{item.div}</span></td>
                   <td className="px-4 py-2 align-top"><span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${item.colorClass}`}>{item.category === 'จราจรปกติ' ? <span className="flex items-center gap-1"><CheckCircle2 size={10}/> เข้าสู่ภาวะปกติ</span> : item.category}</span></td>
                   <td className="px-4 py-2 align-top">
