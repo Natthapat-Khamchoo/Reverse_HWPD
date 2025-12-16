@@ -76,24 +76,60 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Parsing Logic (Improved)
+// Core Logic: Robust CSV Parser
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
+// 🔥 NEW: Advanced CSV Parser that handles newlines inside quotes
 const parseCSV = (text) => {
   if (!text) return [];
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  return lines.slice(1).map(line => {
-    const values = []; let match; const regex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
-    while ((match = regex.exec(line)) !== null) {
-        if (match.index === regex.lastIndex) regex.lastIndex++;
-        if (match[0] === '' && values.length >= headers.length) break;
-        let val = match[1] !== undefined ? match[1] : match[2];
-        values.push(val ? val.trim() : '');
+  
+  const rows = [];
+  let currentRow = [];
+  let currentVal = '';
+  let insideQuote = false;
+  
+  // Iterate char by char to handle quotes correctly
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const nextChar = text[i+1];
+
+    if (char === '"') {
+      if (insideQuote && nextChar === '"') {
+        currentVal += '"'; // Escaped quote
+        i++;
+      } else {
+        insideQuote = !insideQuote; // Toggle quote state
+      }
+    } else if (char === ',' && !insideQuote) {
+      currentRow.push(currentVal.trim());
+      currentVal = '';
+    } else if ((char === '\n' || char === '\r') && !insideQuote) {
+      if (currentVal || currentRow.length > 0) currentRow.push(currentVal.trim());
+      if (currentRow.length > 0) rows.push(currentRow);
+      currentRow = [];
+      currentVal = '';
+      if (char === '\r' && nextChar === '\n') i++; // Skip \n after \r
+    } else {
+      currentVal += char;
     }
-    return headers.reduce((obj, header, index) => { obj[header] = values[index] || ''; return obj; }, {});
+  }
+  if (currentVal || currentRow.length > 0) {
+      currentRow.push(currentVal.trim());
+      rows.push(currentRow);
+  }
+
+  if (rows.length < 2) return [];
+
+  // Map headers to lower case for case-insensitive matching
+  const headers = rows[0].map(h => h.replace(/^"|"$/g, '').toLowerCase());
+  
+  // Convert arrays to objects
+  return rows.slice(1).map(values => {
+    return headers.reduce((obj, header, index) => {
+      obj[header] = values[index] ? values[index].replace(/^"|"$/g, '') : '';
+      return obj;
+    }, {});
   });
 };
 
@@ -108,51 +144,54 @@ const processSheetData = (rawData, sourceFormat) => {
       return '';
     };
 
-    // --- 1. Strict Date/Time Parsing ---
-    let dateStr = '', timeStr = '00:00';
-    const dateRaw = getVal(['วันที่', 'date']);
-    const timeRaw = getVal(['เวลา', 'time']);
+    // --- 1. Data Cleaning & Validation ---
+    // Remove header rows that slipped through or empty rows
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
+    const dateRaw = getVal(['วันที่', 'date']);
+    
+    // VALIDATION: Must contain at least some digits in Date/Timestamp
+    if (!timestampRaw && !dateRaw) return null;
+    const checkStr = (timestampRaw + dateRaw);
+    if (!/\d/.test(checkStr)) return null; // No digits = Garbage
+    if (checkStr.includes('หน่วย') || checkStr.includes('Date')) return null; // Header row
 
-    // ถ้าค่าในช่องวันที่ เป็นคำว่า "วันที่" หรือ "Date" ให้ข้าม (Header หลุดมา)
-    if (dateRaw.includes('วัน') || dateRaw.includes('Date')) return null;
+    // --- 2. Date/Time Parsing ---
+    let dateStr = '', timeStr = '00:00';
+    const timeRaw = getVal(['เวลา', 'time']);
 
-    if (dateRaw) {
-        // Handle dd/mm/yyyy or yyyy-mm-dd
-        if (dateRaw.includes('/')) {
-            const [d, m, y] = dateRaw.split('/');
-            let yr = parseInt(y);
-            if (yr > 2400) yr -= 543; // Convert Buddhist Year
-            dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-        } else {
-            dateStr = dateRaw;
+    try {
+        if (timestampRaw) {
+            const parts = timestampRaw.split(' ');
+            if (parts.length >= 1) {
+                let dPart = parts[0];
+                if (dPart.includes('/')) {
+                    const [d, m, y] = dPart.split('/');
+                    let yr = parseInt(y); if (yr > 2400) yr -= 543; 
+                    dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+                } else if(dPart.includes('-')) { dateStr = dPart; }
+                
+                if (parts.length >= 2) timeStr = parts[1].substring(0, 5);
+            }
+        } else if (dateRaw) {
+             if (dateRaw.includes('/')) {
+                const [d, m, y] = dateRaw.split('/');
+                let yr = parseInt(y); if (yr > 2400) yr -= 543;
+                dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+             } else { dateStr = dateRaw; }
+             
+             if (timeRaw) timeStr = timeRaw.replace(/[^\d:]/g, '').substring(0, 5);
         }
-    } else if (timestampRaw) {
-        const parts = timestampRaw.split(' ');
-        if (parts[0].includes('/')) {
-             const [d, m, y] = parts[0].split('/');
-             let yr = parseInt(y); if (yr > 2400) yr -= 543;
-             dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-        } else { dateStr = parts[0]; }
-    }
+    } catch (e) { return null; }
 
-    if (timeRaw) {
-        // Clean time (remove "น.", "น", etc.)
-        timeStr = timeRaw.replace(/[^\d:]/g, '').substring(0, 5); 
-    } else if (timestampRaw && timestampRaw.includes(' ')) {
-        timeStr = timestampRaw.split(' ')[1].substring(0, 5);
-    }
-
-    // Safety check: Invalid Date
+    // Final Valid Date Check
     if (!dateStr || dateStr.length < 8) return null;
 
-    // --- 2. Unit Parsing ---
+    // --- 3. Unit & Location ---
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
     const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/); if (stMatch) st = stMatch[1];
 
-    // --- 3. Location Extraction (Fixed for "ทล./กม." format) ---
     let road = '-', km = '-', dir = '-';
     const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
     
@@ -161,26 +200,23 @@ const processSheetData = (rawData, sourceFormat) => {
     const expKm = getVal(['กม.', 'กม', 'km']); if(expKm) km = expKm;
     const expDir = getVal(['ทิศทาง', 'direction']); if(expDir) dir = expDir;
 
-    // Fallback: Parse from "จุดเกิดเหตุ" string (e.g. "ทล.9 / กม.45")
+    // Fallback Parse
     if (road === '-' && locRaw) {
         const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)\s*\//);
         if (roadMatch) road = roadMatch[1];
-
         const kmMatch = locRaw.match(/(?:กม)\.?\s*(\d+)/i);
         if (kmMatch) km = kmMatch[1];
-
         if (locRaw.includes('ขาเข้า')) dir = 'ขาเข้า';
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
-    // --- 4. Coordinates ---
+    // Coordinates
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
-    // Randomize slightly if 0 or NaN to show on map (Thailand center)
     if (isNaN(lat) || lat === 0) lat = 13.75 + (Math.random() - 0.5) * 2;
     if (isNaN(lng) || lng === 0) lng = 100.50 + (Math.random() - 0.5) * 2;
 
-    // --- 5. Categorization ---
+    // --- 4. Categorization ---
     let mainCategory = 'ทั่วไป';
     let detailText = '';
     let statusColor = 'bg-slate-500';
@@ -236,7 +272,6 @@ const processSheetData = (rawData, sourceFormat) => {
     };
   });
 
-  // 🔥 Filter out nulls (Garbage rows)
   return processed.filter(item => item !== null);
 };
 
