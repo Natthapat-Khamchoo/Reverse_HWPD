@@ -20,7 +20,10 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 ChartJS.defaults.color = '#cbd5e1'; 
 ChartJS.defaults.borderColor = '#334155'; 
 
-const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?output=csv"; 
+// ⚠️ ใส่ Link CSV ของแต่ละ Sheet ตรงนี้ครับ (File > Share > Publish to web > CSV)
+const SHEET_TRAFFIC_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=617598886&single=true&output=csv"; 
+const SHEET_ENFORCE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=953397811&single=true&output=csv"; 
+const SHEET_SAFETY_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=622673756&single=true&output=csv"; 
 
 const DIVISION_COLORS = { "1": "#EF4444", "2": "#3B82F6", "3": "#10B981", "4": "#FBBF24", "5": "#A78BFA", "6": "#EC4899", "7": "#22D3EE", "8": "#6366F1" };
 const ORG_STRUCTURE = { "1": 6, "2": 6, "3": 5, "4": 5, "5": 6, "6": 6, "7": 5, "8": 4 };
@@ -95,8 +98,11 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 // Helper Logic
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
+
 const parseCSV = (text) => {
+  if (!text) return [];
   const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return []; // No data
   const headers = lines[0].split(',').map(h => h.trim().replace(/^['"]+|['"]+$/g, ''));
   return lines.slice(1).map(line => {
     const values = []; let match; const regex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
@@ -105,8 +111,10 @@ const parseCSV = (text) => {
   });
 };
 
-const processSheetData = (rawData) => {
+// Updated Process function to handle distinct types
+const processSheetData = (rawData, sourceFormat) => {
   return rawData.map((row, index) => {
+    // 1. Common Data
     let dateStr = '', timeStr = '';
     const dateTimeRaw = row['วันที่ เวลา'] || row['Timestamp'] || '';
     if (dateTimeRaw) {
@@ -126,56 +134,68 @@ const processSheetData = (rawData) => {
     let lng = parseFloat(row['Longitude'] || row['พิกัด']?.split(',')[1]);
     if (isNaN(lat) || isNaN(lng)) { lat = 13.75 + (Math.random() - 0.5) * 0.1; lng = 100.50 + (Math.random() - 0.5) * 0.1; }
 
-    let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
-    let reportFormat = 'TRAFFIC'; // Default format (TRAFFIC, ENFORCE, SAFETY)
+    // 2. Format Specific Logic
+    let mainCategory = 'ทั่วไป';
+    let detailText = '';
+    let statusColor = 'bg-slate-500';
 
-    const majorAccident = row['เหตุน่าสนใจ (กก.1-7)/ภัยพิบัติ'] || row['เหตุน่าสนใจ'] || '';
-    const arrest = row['จับกุม/เมา'] || '';
-    const checkpoint = row['ว.43 (จุด/ผล)'] || row['ว.43'] || '';
-    const generalAccident = row['เหตุทั่วไป (กก.8)'] || row['เหตุทั่วไป'] || '';
-    const specialLane = row['ช่องทางพิเศษ'] || '';
-    const traffic = row['สภาพจราจร'] || '';
-    const tailback = row['ท้ายแถว'] || '';
+    if (sourceFormat === 'SAFETY') {
+        const major = row['เหตุน่าสนใจ'] || '';
+        const general = row['เหตุทั่วไป'] || '';
+        if (major && major !== '-') { 
+            mainCategory = 'อุบัติเหตุใหญ่'; detailText = major; statusColor = 'bg-red-600'; 
+        } else {
+            mainCategory = 'อุบัติเหตุทั่วไป'; detailText = general || '-'; statusColor = 'bg-orange-500';
+        }
+    } 
+    else if (sourceFormat === 'ENFORCE') {
+        const arrest = row['จับกุม/เมา'] || '';
+        const checkpoint = row['ว.43'] || '';
+        if (arrest && arrest !== '-') {
+            mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
+        } else {
+            mainCategory = 'ว.43'; detailText = checkpoint || '-'; statusColor = 'bg-indigo-500';
+        }
+    }
+    else if (sourceFormat === 'TRAFFIC') {
+        const specialLane = row['ช่องทางพิเศษ'] || '';
+        const traffic = row['สภาพจราจร'] || '';
+        const tailback = row['ท้ายแถว'] || '';
 
-    if (majorAccident && majorAccident !== '-') { 
-        mainCategory = 'อุบัติเหตุใหญ่'; detailText = majorAccident; statusColor = 'bg-red-600'; 
-        reportFormat = 'SAFETY';
-    } else if (arrest && arrest !== '-') { 
-        mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600'; 
-        reportFormat = 'ENFORCE';
-    } else if (checkpoint && checkpoint !== '-') { 
-        mainCategory = 'ว.43'; detailText = checkpoint; statusColor = 'bg-indigo-500'; 
-        reportFormat = 'ENFORCE';
-    } else if (generalAccident && generalAccident !== '-') { 
-        mainCategory = 'อุบัติเหตุทั่วไป'; detailText = generalAccident; statusColor = 'bg-orange-500'; 
-        reportFormat = 'SAFETY';
-    } else if (specialLane && specialLane !== '-') { 
-      if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
-          mainCategory = 'ปิดช่องทางพิเศษ';
-      } else {
-          mainCategory = 'ช่องทางพิเศษ';
-      }
-      detailText = specialLane; statusColor = 'bg-green-500'; 
-      reportFormat = 'TRAFFIC';
-    } else if (traffic) {
-      if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง')) { mainCategory = 'จราจรติดขัด'; detailText = `ท้ายแถว: ${tailback}`; statusColor = 'bg-yellow-500'; }
-      else if (traffic.includes('คล่องตัว') || traffic.includes('ปกติ')) { mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500'; }
-      else { mainCategory = 'สภาพจราจร'; detailText = traffic; statusColor = 'bg-slate-500'; }
-      reportFormat = 'TRAFFIC';
+        if (specialLane && specialLane !== '-') {
+             if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
+                mainCategory = 'ปิดช่องทางพิเศษ';
+             } else {
+                mainCategory = 'ช่องทางพิเศษ';
+             }
+             detailText = specialLane; statusColor = 'bg-green-500';
+        } else if (traffic) {
+             if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง')) {
+                mainCategory = 'จราจรติดขัด'; detailText = `ท้ายแถว: ${tailback}`; statusColor = 'bg-yellow-500';
+             } else if (traffic.includes('คล่องตัว') || traffic.includes('ปกติ')) {
+                mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500';
+             } else {
+                mainCategory = 'สภาพจราจร'; detailText = traffic; statusColor = 'bg-slate-500';
+             }
+        }
     }
 
     return {
-      id: index, date: dateStr, time: timeStr, div: div, st: st, category: mainCategory, detail: detailText,
+      id: `${sourceFormat}-${index}`, // Unique ID combination
+      date: dateStr, time: timeStr, div: div, st: st, 
+      category: mainCategory, detail: detailText,
       road: row['ทล.'] || '-', km: row['กม.'] || '-', dir: row['ขา'] || row['ทิศทาง'] || '-',
-      traffic_status: traffic, tailback: tailback, special_lane: specialLane, 
-      lat: lat, lng: lng, colorClass: statusColor, reportFormat: reportFormat,
+      traffic_status: row['สภาพจราจร'] || '', 
+      tailback: row['ท้ายแถว'] || '', 
+      special_lane: row['ช่องทางพิเศษ'] || '', 
+      lat: lat, lng: lng, colorClass: statusColor, reportFormat: sourceFormat,
       timestamp: new Date(`${dateStr}T${timeStr}`).getTime()
     };
   });
 };
 
 // -----------------------------------------------------------------------------
-// UI Parts
+// UI Parts (KPI, MAP etc.) - Same as before
 // -----------------------------------------------------------------------------
 const KPI_Card = ({ title, value, subtext, icon: Icon, accentColor }) => (
   <div className={`bg-slate-800 rounded-lg p-4 border border-slate-700 shadow-lg relative overflow-hidden group hover:border-slate-600 transition-all`}>
@@ -213,7 +233,6 @@ const LeafletMapComponent = ({ data }) => {
               <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
                 <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time}</span>
               </strong>
-              {/* DISPLAY FORMAT LOGIC */}
               {item.reportFormat === 'SAFETY' && (
                  <div className="bg-red-50 p-2 rounded border border-red-100 mb-2">
                     <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><AlertTriangle size={12}/> อุบัติเหตุ/ภัยพิบัติ</div>
@@ -232,7 +251,6 @@ const LeafletMapComponent = ({ data }) => {
                     <div className="text-sm text-slate-700">{item.detail}</div>
                  </div>
               )}
-              
               <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between">
                 <span>ทล.{item.road} กม.{item.km}</span>
                 <span className="font-bold">{item.dir}</span>
@@ -273,17 +291,33 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
-  // Fetch Data
+  // Fetch Data (FROM 3 SOURCES)
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
       try {
-        const response = await fetch(GOOGLE_SHEET_CSV_URL);
-        const text = await response.text();
-        const mappedData = processSheetData(parseCSV(text)); 
-        setRawData(mappedData);
-      } catch (error) { console.error(error); setRawData([]); } 
-      finally { setLoading(false); }
+        // Fetch all 3 sheets concurrently
+        const [resTraffic, resEnforce, resSafety] = await Promise.all([
+             fetch(SHEET_TRAFFIC_URL).then(r => r.text()).catch(e => ''),
+             fetch(SHEET_ENFORCE_URL).then(r => r.text()).catch(e => ''),
+             fetch(SHEET_SAFETY_URL).then(r => r.text()).catch(e => '')
+        ]);
+
+        // Process each separately
+        const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
+        const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
+        const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
+
+        // Merge into one stream
+        const allData = [...dataTraffic, ...dataEnforce, ...dataSafety];
+        setRawData(allData);
+
+      } catch (error) { 
+        console.error("Fetch Error:", error); 
+        setRawData([]); 
+      } finally { 
+        setLoading(false); 
+      }
     };
     fetchData();
   }, []);
@@ -321,16 +355,14 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [logTableData]);
 
-  // 3. Special Lane Counts (Separate Logic)
+  // 3. Special Lane Stats
   const specialLaneStats = useMemo(() => {
-    // Open: นับจาก Active State ที่เป็น 'ช่องทางพิเศษ'
     const openCount = activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
-    // Closed: นับจาก Log ที่เป็น 'ปิดช่องทางพิเศษ' (Cumulative in period)
     const closedCount = logTableData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
     return { open: openCount, closed: closedCount };
   }, [activeVisualData, logTableData]);
 
-  // Chart Data
+  // Charts
   const roadChartConfig = useMemo(() => {
     const roadStats = {};
     activeVisualData.forEach(d => {
@@ -363,7 +395,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200">
-      
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <div><h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2"><div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div><span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span></h1></div>
@@ -389,7 +420,7 @@ export default function App() {
           <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง (เลือกได้หลายข้อ)" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
       </div>
 
-      {/* KPI Cards (With Split Lane Stats) */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KPI_Card title="Active Events" value={activeVisualData.length} subtext="เหตุการณ์คงค้าง" icon={ListChecks} accentColor="bg-slate-400" />
         <KPI_Card title="เปิดช่องทาง" value={specialLaneStats.open} subtext="กำลังเปิด (Active)" icon={ArrowRightCircle} accentColor="bg-green-500" />
@@ -417,7 +448,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Log Table (3 Formats) */}
+      {/* Log Table */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-xs font-bold flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> บันทึกเหตุการณ์ทั้งหมด (History Log)</h3></div>
         <div className="overflow-x-auto">
@@ -430,7 +461,6 @@ export default function App() {
                   <td className="px-4 py-2 align-top"><span className="bg-slate-900 border border-slate-600 px-1.5 py-0.5 rounded text-[10px]">ส.ทล.{item.st} กก.{item.div}</span></td>
                   <td className="px-4 py-2 align-top"><span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${item.colorClass}`}>{item.category === 'จราจรปกติ' ? <span className="flex items-center gap-1"><CheckCircle2 size={10}/> เข้าสู่ภาวะปกติ</span> : item.category}</span></td>
                   <td className="px-4 py-2 align-top">
-                     {/* 3 FORMAT DISPLAY IN TABLE */}
                      {item.reportFormat === 'TRAFFIC' && <div className="text-slate-200 border-l-2 border-yellow-500 pl-2">{item.detail || '-'}</div>}
                      {item.reportFormat === 'ENFORCE' && <div className="text-purple-200 border-l-2 border-purple-500 pl-2">{item.detail || '-'}</div>}
                      {item.reportFormat === 'SAFETY' && <div className="text-red-200 border-l-2 border-red-500 pl-2">{item.detail || '-'}</div>}
