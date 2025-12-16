@@ -33,11 +33,12 @@ const EVENT_CATEGORIES = [
 ];
 
 // -----------------------------------------------------------------------------
-// UI Component
+// UI Component: MultiSelect Dropdown
 // -----------------------------------------------------------------------------
 const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
+
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setIsOpen(false);
@@ -45,10 +46,12 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
   const toggleOption = (option) => {
     if (selected.includes(option)) onChange(selected.filter(item => item !== option));
     else onChange([...selected, option]);
   };
+
   return (
     <div className="relative w-full" ref={dropdownRef}>
       <label className="text-[10px] text-slate-400 font-bold mb-1 block">{label}</label>
@@ -73,7 +76,7 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Logic: CSV Parser & Processor
+// Core Logic: CSV Parser
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
@@ -117,8 +120,9 @@ const processSheetData = (rawData, sourceFormat) => {
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const dateRaw = getVal(['วันที่', 'date']);
     const timeRaw = getVal(['เวลา', 'time']);
-    
-    // Garbage Filter
+    const unitRaw = getVal(['หน่วยงาน', 'unit']);
+    const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
+
     if (!timestampRaw && !dateRaw) return null;
     const checkStr = (timestampRaw + dateRaw);
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
@@ -147,12 +151,10 @@ const processSheetData = (rawData, sourceFormat) => {
     if (!dateStr || dateStr.length < 8) return null;
 
     let div = '1', st = '1';
-    const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
     const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/); if (stMatch) st = stMatch[1];
 
     let road = '-', km = '-', dir = '-';
-    const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
     const expRoad = getVal(['ทล.', 'ทล', 'road']); if(expRoad) road = expRoad;
     const expKm = getVal(['กม.', 'กม', 'km']); if(expKm) km = expKm;
     const expDir = getVal(['ทิศทาง', 'direction']); if(expDir) dir = expDir;
@@ -197,10 +199,15 @@ const processSheetData = (rawData, sourceFormat) => {
         const tailback = getVal(['ท้ายแถว']);
 
         if (specialLane && specialLane !== '-' && specialLane.length > 1) {
-             if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
-                mainCategory = 'ปิดช่องทางพิเศษ';
-             } else {
-                mainCategory = 'ช่องทางพิเศษ';
+             // 🔥 FIXED LOGIC: Priority Check for "OPEN"
+             if (specialLane.includes('เปิด') || specialLane.includes('เริ่ม')) {
+                mainCategory = 'ช่องทางพิเศษ'; // Open
+             } 
+             else if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด') || specialLane.includes('ยุติ')) {
+                mainCategory = 'ปิดช่องทางพิเศษ'; // Close
+             } 
+             else {
+                mainCategory = 'ช่องทางพิเศษ'; // Default to Open if ambiguous
              }
              detailText = specialLane; statusColor = 'bg-green-500';
         } else if (traffic) {
@@ -321,14 +328,11 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 🔥 FIXED LOGIC: Active Status Calculation
   const activeVisualData = useMemo(() => {
-    const sortedLog = [...rawData].sort((a, b) => a.timestamp - b.timestamp); // Sort by time ascending
+    const sortedLog = [...rawData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
     const otherEvents = []; 
-    
     sortedLog.forEach(row => {
-        // Apply Filters first
         const passCategory = selectedCategories.length === 0 || selectedCategories.includes(row.category);
         const passRoad = selectedRoads.length === 0 || selectedRoads.includes(row.road);
         const passDiv = !filterDiv || row.div === filterDiv;
@@ -336,20 +340,11 @@ export default function App() {
         if (!passCategory || !passRoad || !passDiv || !passSt) return;
 
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-        
         if (row.category === 'จราจรติดขัด') { activeStates.set(locKey, row); } 
         else if (row.category === 'จราจรปกติ') { activeStates.delete(locKey); } 
-        
-        // 🟢 SPECIAL LANE LOGIC
-        else if (row.category === 'ช่องทางพิเศษ') { 
-            activeStates.set(`LANE-${locKey}`, row); 
-        } 
-        else if (row.category === 'ปิดช่องทางพิเศษ') { 
-            activeStates.delete(`LANE-${locKey}`); 
-        } 
-        
+        else if (row.category === 'ช่องทางพิเศษ') { activeStates.set(`LANE-${locKey}`, row); } 
+        else if (row.category === 'ปิดช่องทางพิเศษ') { activeStates.delete(`LANE-${locKey}`); } 
         else { 
-            // Check date for non-state events (Accidents/Arrests)
             let passDate = true;
             if (filterStartDate && filterEndDate) passDate = row.date >= filterStartDate && row.date <= filterEndDate;
             if (passDate) otherEvents.push(row);
