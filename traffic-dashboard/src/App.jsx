@@ -33,12 +33,11 @@ const EVENT_CATEGORIES = [
 ];
 
 // -----------------------------------------------------------------------------
-// UI Component: MultiSelect Dropdown
+// UI Component
 // -----------------------------------------------------------------------------
 const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
-
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) setIsOpen(false);
@@ -46,12 +45,10 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
   const toggleOption = (option) => {
     if (selected.includes(option)) onChange(selected.filter(item => item !== option));
     else onChange([...selected, option]);
   };
-
   return (
     <div className="relative w-full" ref={dropdownRef}>
       <label className="text-[10px] text-slate-400 font-bold mb-1 block">{label}</label>
@@ -76,55 +73,27 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Logic: Robust CSV Parser
+// Core Logic: CSV Parser & Processor
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
-// 🔥 NEW: Advanced CSV Parser that handles newlines inside quotes
 const parseCSV = (text) => {
   if (!text) return [];
-  
-  const rows = [];
-  let currentRow = [];
-  let currentVal = '';
-  let insideQuote = false;
-  
-  // Iterate char by char to handle quotes correctly
+  const rows = []; let currentRow = []; let currentVal = ''; let insideQuote = false;
   for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    const nextChar = text[i+1];
-
+    const char = text[i]; const nextChar = text[i+1];
     if (char === '"') {
-      if (insideQuote && nextChar === '"') {
-        currentVal += '"'; // Escaped quote
-        i++;
-      } else {
-        insideQuote = !insideQuote; // Toggle quote state
-      }
-    } else if (char === ',' && !insideQuote) {
-      currentRow.push(currentVal.trim());
-      currentVal = '';
-    } else if ((char === '\n' || char === '\r') && !insideQuote) {
+      if (insideQuote && nextChar === '"') { currentVal += '"'; i++; } else { insideQuote = !insideQuote; }
+    } else if (char === ',' && !insideQuote) { currentRow.push(currentVal.trim()); currentVal = ''; } 
+    else if ((char === '\n' || char === '\r') && !insideQuote) {
       if (currentVal || currentRow.length > 0) currentRow.push(currentVal.trim());
       if (currentRow.length > 0) rows.push(currentRow);
-      currentRow = [];
-      currentVal = '';
-      if (char === '\r' && nextChar === '\n') i++; // Skip \n after \r
-    } else {
-      currentVal += char;
-    }
+      currentRow = []; currentVal = ''; if (char === '\r' && nextChar === '\n') i++;
+    } else { currentVal += char; }
   }
-  if (currentVal || currentRow.length > 0) {
-      currentRow.push(currentVal.trim());
-      rows.push(currentRow);
-  }
-
+  if (currentVal || currentRow.length > 0) { currentRow.push(currentVal.trim()); rows.push(currentRow); }
   if (rows.length < 2) return [];
-
-  // Map headers to lower case for case-insensitive matching
   const headers = rows[0].map(h => h.replace(/^"|"$/g, '').toLowerCase());
-  
-  // Convert arrays to objects
   return rows.slice(1).map(values => {
     return headers.reduce((obj, header, index) => {
       obj[header] = values[index] ? values[index].replace(/^"|"$/g, '') : '';
@@ -144,20 +113,15 @@ const processSheetData = (rawData, sourceFormat) => {
       return '';
     };
 
-    // --- 1. Data Cleaning & Validation ---
-    // Remove header rows that slipped through or empty rows
+    let dateStr = '', timeStr = '00:00';
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const dateRaw = getVal(['วันที่', 'date']);
+    const timeRaw = getVal(['เวลา', 'time']);
     
-    // VALIDATION: Must contain at least some digits in Date/Timestamp
+    // Garbage Filter
     if (!timestampRaw && !dateRaw) return null;
     const checkStr = (timestampRaw + dateRaw);
-    if (!/\d/.test(checkStr)) return null; // No digits = Garbage
-    if (checkStr.includes('หน่วย') || checkStr.includes('Date')) return null; // Header row
-
-    // --- 2. Date/Time Parsing ---
-    let dateStr = '', timeStr = '00:00';
-    const timeRaw = getVal(['เวลา', 'time']);
+    if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
     try {
         if (timestampRaw) {
@@ -169,7 +133,6 @@ const processSheetData = (rawData, sourceFormat) => {
                     let yr = parseInt(y); if (yr > 2400) yr -= 543; 
                     dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
                 } else if(dPart.includes('-')) { dateStr = dPart; }
-                
                 if (parts.length >= 2) timeStr = parts[1].substring(0, 5);
             }
         } else if (dateRaw) {
@@ -178,15 +141,11 @@ const processSheetData = (rawData, sourceFormat) => {
                 let yr = parseInt(y); if (yr > 2400) yr -= 543;
                 dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
              } else { dateStr = dateRaw; }
-             
              if (timeRaw) timeStr = timeRaw.replace(/[^\d:]/g, '').substring(0, 5);
         }
     } catch (e) { return null; }
-
-    // Final Valid Date Check
     if (!dateStr || dateStr.length < 8) return null;
 
-    // --- 3. Unit & Location ---
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
@@ -194,13 +153,10 @@ const processSheetData = (rawData, sourceFormat) => {
 
     let road = '-', km = '-', dir = '-';
     const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
-    
-    // Explicit Columns Check
     const expRoad = getVal(['ทล.', 'ทล', 'road']); if(expRoad) road = expRoad;
     const expKm = getVal(['กม.', 'กม', 'km']); if(expKm) km = expKm;
     const expDir = getVal(['ทิศทาง', 'direction']); if(expDir) dir = expDir;
 
-    // Fallback Parse
     if (road === '-' && locRaw) {
         const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)\s*\//);
         if (roadMatch) road = roadMatch[1];
@@ -210,16 +166,12 @@ const processSheetData = (rawData, sourceFormat) => {
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
-    // Coordinates
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
     if (isNaN(lat) || lat === 0) lat = 13.75 + (Math.random() - 0.5) * 2;
     if (isNaN(lng) || lng === 0) lng = 100.50 + (Math.random() - 0.5) * 2;
 
-    // --- 4. Categorization ---
-    let mainCategory = 'ทั่วไป';
-    let detailText = '';
-    let statusColor = 'bg-slate-500';
+    let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
 
     if (sourceFormat === 'SAFETY') {
         const major = getVal(['เหตุน่าสนใจ', 'major']);
@@ -271,7 +223,6 @@ const processSheetData = (rawData, sourceFormat) => {
       timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
     };
   });
-
   return processed.filter(item => item !== null);
 };
 
@@ -302,14 +253,8 @@ const LeafletMapComponent = ({ data }) => {
               <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
                 <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time} น.</span>
               </strong>
-              <div className="mb-2">
-                 <div className="text-xs font-bold text-slate-500 mb-1">{item.category}</div>
-                 <div className="text-sm font-medium text-slate-800">{item.detail}</div>
-              </div>
-              <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between items-center">
-                <span className="flex items-center gap-1"><MapPin size={10}/> ทล.{item.road} กม.{item.km}</span>
-                <span className="font-bold">{item.dir}</span>
-              </div>
+              <div className="mb-2"><div className="text-xs font-bold text-slate-500 mb-1">{item.category}</div><div className="text-sm font-medium text-slate-800">{item.detail}</div></div>
+              <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between items-center"><span className="flex items-center gap-1"><MapPin size={10}/> ทล.{item.road} กม.{item.km}</span><span className="font-bold">{item.dir}</span></div>
             </div>
           </Popup>
         </CircleMarker>
@@ -326,7 +271,6 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const todayStr = getThaiDateStr();
   
-  // State: Filters
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(todayStr);
   const [customEnd, setCustomEnd] = useState(todayStr);
@@ -377,11 +321,14 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
+  // 🔥 FIXED LOGIC: Active Status Calculation
   const activeVisualData = useMemo(() => {
-    const sortedLog = [...rawData].sort((a, b) => a.timestamp - b.timestamp);
+    const sortedLog = [...rawData].sort((a, b) => a.timestamp - b.timestamp); // Sort by time ascending
     const activeStates = new Map(); 
     const otherEvents = []; 
+    
     sortedLog.forEach(row => {
+        // Apply Filters first
         const passCategory = selectedCategories.length === 0 || selectedCategories.includes(row.category);
         const passRoad = selectedRoads.length === 0 || selectedRoads.includes(row.road);
         const passDiv = !filterDiv || row.div === filterDiv;
@@ -389,11 +336,20 @@ export default function App() {
         if (!passCategory || !passRoad || !passDiv || !passSt) return;
 
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+        
         if (row.category === 'จราจรติดขัด') { activeStates.set(locKey, row); } 
         else if (row.category === 'จราจรปกติ') { activeStates.delete(locKey); } 
-        else if (row.category === 'ช่องทางพิเศษ') { activeStates.set(`LANE-${locKey}`, row); } 
-        else if (row.category === 'ปิดช่องทางพิเศษ') { activeStates.delete(`LANE-${locKey}`); } 
+        
+        // 🟢 SPECIAL LANE LOGIC
+        else if (row.category === 'ช่องทางพิเศษ') { 
+            activeStates.set(`LANE-${locKey}`, row); 
+        } 
+        else if (row.category === 'ปิดช่องทางพิเศษ') { 
+            activeStates.delete(`LANE-${locKey}`); 
+        } 
+        
         else { 
+            // Check date for non-state events (Accidents/Arrests)
             let passDate = true;
             if (filterStartDate && filterEndDate) passDate = row.date >= filterStartDate && row.date <= filterEndDate;
             if (passDate) otherEvents.push(row);
