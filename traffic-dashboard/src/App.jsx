@@ -2,8 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   RotateCcw, ListChecks, AlertTriangle, TrafficCone, 
   Monitor, Calendar, Siren, CarFront, Route, 
-  ShieldAlert, ShieldCheck, CheckCircle2, ChevronDown, 
-  ArrowRightCircle, StopCircle, MapPin
+  ShieldAlert, ShieldCheck, CheckCircle2, ChevronDown, MapPin,
+  ArrowRightCircle, StopCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS, ArcElement, Tooltip, Legend, 
@@ -20,7 +20,7 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 ChartJS.defaults.color = '#cbd5e1'; 
 ChartJS.defaults.borderColor = '#334155'; 
 
-// ⚠️ URL ข้อมูลจริง (ตรวจสอบแล้วถูกต้อง)
+// URL ข้อมูลจริง
 const SHEET_TRAFFIC_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=617598886&single=true&output=csv"; 
 const SHEET_ENFORCE_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=953397811&single=true&output=csv"; 
 const SHEET_SAFETY_URL  = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=622673756&single=true&output=csv"; 
@@ -76,138 +76,111 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Logic & Parsers
+// Core Parsing Logic (Improved)
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
-// CSV Parser that handles quoted strings correctly
 const parseCSV = (text) => {
   if (!text) return [];
-  const lines = text.split(/\r?\n/).filter(l => l.trim()); // Split by line, remove empty
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
   if (lines.length < 2) return [];
-  
-  // Normalize headers: remove BOM, quotes, spaces, lowercase
   const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
-  
   return lines.slice(1).map(line => {
-    const values = [];
-    let match;
-    // Regex to handle "comma inside quotes"
-    const regex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
+    const values = []; let match; const regex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
     while ((match = regex.exec(line)) !== null) {
         if (match.index === regex.lastIndex) regex.lastIndex++;
         if (match[0] === '' && values.length >= headers.length) break;
         let val = match[1] !== undefined ? match[1] : match[2];
         values.push(val ? val.trim() : '');
     }
-    
-    // Create object with normalized keys
-    return headers.reduce((obj, header, index) => {
-      obj[header] = values[index] || '';
-      return obj;
-    }, {});
+    return headers.reduce((obj, header, index) => { obj[header] = values[index] || ''; return obj; }, {});
   });
 };
 
-// Robust Data Processor
 const processSheetData = (rawData, sourceFormat) => {
-  return rawData.map((row, index) => {
-    // Helper: Find value by checking multiple possible column names
+  const processed = rawData.map((row, index) => {
     const getVal = (possibleKeys) => {
       const keys = Object.keys(row);
       for (const pk of possibleKeys) {
-        const foundKey = keys.find(k => k.includes(pk.toLowerCase())); // Fuzzy match
-        if (foundKey && row[foundKey]) return row[foundKey];
+        const foundKey = keys.find(k => k.includes(pk.toLowerCase()));
+        if (foundKey && row[foundKey]) return row[foundKey].trim();
       }
       return '';
     };
 
-    // 1. Date/Time Parsing
-    let dateStr = getThaiDateStr(), timeStr = '00:00';
-    const timestampRaw = getVal(['timestamp', 'วันที่ เวลา', 'time stamp']);
+    // --- 1. Strict Date/Time Parsing ---
+    let dateStr = '', timeStr = '00:00';
     const dateRaw = getVal(['วันที่', 'date']);
     const timeRaw = getVal(['เวลา', 'time']);
+    const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
 
-    try {
-        if (timestampRaw) {
-            // Try separating date time (e.g. "16/12/2025 13:20:00")
-            const parts = timestampRaw.split(' ');
-            if (parts.length >= 1) {
-                let dPart = parts[0];
-                if (dPart.includes('/')) {
-                    const [d, m, y] = dPart.split('/');
-                    // Handle 2 digit year or Buddhist year
-                    let yr = parseInt(y);
-                    if (yr > 2400) yr -= 543; 
-                    dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-                } else if(dPart.includes('-')) {
-                    dateStr = dPart;
-                }
-                if (parts.length >= 2) timeStr = parts[1].substring(0, 5);
-            }
-        } else if (dateRaw) {
-             if (dateRaw.includes('/')) {
-                const [d, m, y] = dateRaw.split('/');
-                let yr = parseInt(y);
-                if (yr > 2400) yr -= 543;
-                dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-             } else {
-                dateStr = dateRaw;
-             }
-             if (timeRaw) timeStr = timeRaw.substring(0,5);
+    // ถ้าค่าในช่องวันที่ เป็นคำว่า "วันที่" หรือ "Date" ให้ข้าม (Header หลุดมา)
+    if (dateRaw.includes('วัน') || dateRaw.includes('Date')) return null;
+
+    if (dateRaw) {
+        // Handle dd/mm/yyyy or yyyy-mm-dd
+        if (dateRaw.includes('/')) {
+            const [d, m, y] = dateRaw.split('/');
+            let yr = parseInt(y);
+            if (yr > 2400) yr -= 543; // Convert Buddhist Year
+            dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+        } else {
+            dateStr = dateRaw;
         }
-    } catch (e) { console.warn("Date parse error", e); }
+    } else if (timestampRaw) {
+        const parts = timestampRaw.split(' ');
+        if (parts[0].includes('/')) {
+             const [d, m, y] = parts[0].split('/');
+             let yr = parseInt(y); if (yr > 2400) yr -= 543;
+             dateStr = `${yr}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+        } else { dateStr = parts[0]; }
+    }
 
-    // 2. Unit Extraction
+    if (timeRaw) {
+        // Clean time (remove "น.", "น", etc.)
+        timeStr = timeRaw.replace(/[^\d:]/g, '').substring(0, 5); 
+    } else if (timestampRaw && timestampRaw.includes(' ')) {
+        timeStr = timestampRaw.split(' ')[1].substring(0, 5);
+    }
+
+    // Safety check: Invalid Date
+    if (!dateStr || dateStr.length < 8) return null;
+
+    // --- 2. Unit Parsing ---
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
     const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/); if (stMatch) st = stMatch[1];
 
-    // 3. Location & Road Parsing (CRITICAL FIX)
+    // --- 3. Location Extraction (Fixed for "ทล./กม." format) ---
     let road = '-', km = '-', dir = '-';
+    const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
     
-    // Check explicit columns first
-    const explicitRoad = getVal(['ทล.', 'ทล', 'road', 'route']);
-    if (explicitRoad) road = explicitRoad;
-    
-    const explicitKm = getVal(['กม.', 'กม', 'km']);
-    if (explicitKm) km = explicitKm;
+    // Explicit Columns Check
+    const expRoad = getVal(['ทล.', 'ทล', 'road']); if(expRoad) road = expRoad;
+    const expKm = getVal(['กม.', 'กม', 'km']); if(expKm) km = expKm;
+    const expDir = getVal(['ทิศทาง', 'direction']); if(expDir) dir = expDir;
 
-    const explicitDir = getVal(['ทิศทาง', 'direction', 'ขา']);
-    if (explicitDir) dir = explicitDir;
+    // Fallback: Parse from "จุดเกิดเหตุ" string (e.g. "ทล.9 / กม.45")
+    if (road === '-' && locRaw) {
+        const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)\s*\//);
+        if (roadMatch) road = roadMatch[1];
 
-    // If still missing, try to extract from "จุดเกิดเหตุ" or "Location" text
-    if (road === '-' || km === '-') {
-        const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
-        if (locRaw) {
-            // Regex to find "ทล.9" or "ทล 9" or "No.9"
-            const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)$/);
-            if (roadMatch && road === '-') road = roadMatch[1];
+        const kmMatch = locRaw.match(/(?:กม)\.?\s*(\d+)/i);
+        if (kmMatch) km = kmMatch[1];
 
-            // Regex for KM
-            const kmMatch = locRaw.match(/(?:กม)\.?\s*(\d+)/i);
-            if (kmMatch && km === '-') km = kmMatch[1];
-            
-            // Direction
-            if (dir === '-') {
-                if (locRaw.includes('ขาเข้า')) dir = 'ขาเข้า';
-                else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
-            }
-        }
+        if (locRaw.includes('ขาเข้า')) dir = 'ขาเข้า';
+        else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
-    // 4. Coordinates
+    // --- 4. Coordinates ---
     let lat = parseFloat(getVal(['latitude', 'lat']));
-    let lng = parseFloat(getVal(['longitude', 'long', 'lng']));
-    
-    // Safety fallback for map (randomize slightly to prevent stacking)
-    if (isNaN(lat) || isNaN(lng) || lat === 0) {
-        lat = 13.75 + (Math.random() - 0.5) * 2; 
-        lng = 100.50 + (Math.random() - 0.5) * 2;
-    }
+    let lng = parseFloat(getVal(['longitude', 'lng']));
+    // Randomize slightly if 0 or NaN to show on map (Thailand center)
+    if (isNaN(lat) || lat === 0) lat = 13.75 + (Math.random() - 0.5) * 2;
+    if (isNaN(lng) || lng === 0) lng = 100.50 + (Math.random() - 0.5) * 2;
 
-    // 5. Categorization Logic
+    // --- 5. Categorization ---
     let mainCategory = 'ทั่วไป';
     let detailText = '';
     let statusColor = 'bg-slate-500';
@@ -215,27 +188,27 @@ const processSheetData = (rawData, sourceFormat) => {
     if (sourceFormat === 'SAFETY') {
         const major = getVal(['เหตุน่าสนใจ', 'major']);
         const general = getVal(['เหตุทั่วไป', 'general']);
-        if (major && major !== '-' && major.length > 2) {
-            mainCategory = 'อุบัติเหตุใหญ่'; detailText = major; statusColor = 'bg-red-600';
+        if (major && major !== '-' && major.length > 1) { 
+            mainCategory = 'อุบัติเหตุใหญ่'; detailText = major; statusColor = 'bg-red-600'; 
         } else {
             mainCategory = 'อุบัติเหตุทั่วไป'; detailText = general || '-'; statusColor = 'bg-orange-500';
         }
     } 
     else if (sourceFormat === 'ENFORCE') {
-        const arrest = getVal(['จับกุม', 'arrest']);
-        const checkpoint = getVal(['ว.43', 'checkpoint']);
-        if (arrest && arrest !== '-') {
+        const arrest = getVal(['ผลการจับกุม', 'จับกุม']);
+        const checkpoint = getVal(['จุดตรวจ ว.43', 'ว.43']);
+        if (arrest && arrest !== '-' && arrest.length > 1) {
             mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
         } else {
             mainCategory = 'ว.43'; detailText = checkpoint || '-'; statusColor = 'bg-indigo-500';
         }
     }
     else if (sourceFormat === 'TRAFFIC') {
-        const specialLane = getVal(['ช่องทางพิเศษ', 'special lane']);
-        const traffic = getVal(['สภาพจราจร', 'traffic']);
-        const tailback = getVal(['ท้ายแถว', 'tailback']);
+        const specialLane = getVal(['ช่องทางพิเศษ']);
+        const traffic = getVal(['สภาพจราจร']);
+        const tailback = getVal(['ท้ายแถว']);
 
-        if (specialLane && specialLane !== '-' && specialLane.length > 2) {
+        if (specialLane && specialLane !== '-' && specialLane.length > 1) {
              if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
                 mainCategory = 'ปิดช่องทางพิเศษ';
              } else {
@@ -243,7 +216,7 @@ const processSheetData = (rawData, sourceFormat) => {
              }
              detailText = specialLane; statusColor = 'bg-green-500';
         } else if (traffic) {
-             if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง') || traffic.includes('มาก')) {
+             if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง')) {
                 mainCategory = 'จราจรติดขัด'; detailText = tailback ? `ท้ายแถว ${tailback}` : traffic; statusColor = 'bg-yellow-500';
              } else if (traffic.includes('คล่องตัว') || traffic.includes('ปกติ')) {
                 mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500';
@@ -259,9 +232,12 @@ const processSheetData = (rawData, sourceFormat) => {
       category: mainCategory, detail: detailText,
       road: road, km: km, dir: dir,
       lat: lat, lng: lng, colorClass: statusColor, reportFormat: sourceFormat,
-      timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0 // Use 0 if invalid date
+      timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
     };
   });
+
+  // 🔥 Filter out nulls (Garbage rows)
+  return processed.filter(item => item !== null);
 };
 
 // -----------------------------------------------------------------------------
@@ -277,29 +253,10 @@ const KPI_Card = ({ title, value, subtext, icon: Icon, accentColor }) => (
   </div>
 );
 
-const MapAutoFit = ({ markers }) => {
-  const map = useMap();
-  useEffect(() => {
-    const validMarkers = markers.filter(m => m.lat !== 0 && m.lng !== 0);
-    if (validMarkers.length > 0) {
-      const bounds = validMarkers.map(m => [m.lat, m.lng]);
-      map.fitBounds(bounds, { padding: [50, 50] });
-    }
-  }, [markers, map]);
-  return null;
-};
-
 const LeafletMapComponent = ({ data }) => {
   const getMarkerColor = (cat) => {
-    if (cat.includes('อุบัติเหตุใหญ่')) return '#EF4444'; 
-    if (cat.includes('อุบัติเหตุ')) return '#F97316'; 
-    if (cat.includes('จับกุม')) return '#A855F7'; 
-    if (cat.includes('ว.43')) return '#6366F1'; 
-    if (cat.includes('ช่องทางพิเศษ')) return '#22C55E'; 
-    if (cat.includes('จราจรติดขัด')) return '#EAB308'; 
-    return '#94A3B8';
+    if (cat.includes('อุบัติเหตุใหญ่')) return '#EF4444'; if (cat.includes('อุบัติเหตุ')) return '#F97316'; if (cat.includes('จับกุม')) return '#A855F7'; if (cat.includes('ว.43')) return '#6366F1'; if (cat.includes('ช่องทางพิเศษ')) return '#22C55E'; if (cat.includes('จราจรติดขัด')) return '#EAB308'; return '#94A3B8';
   };
-
   return (
     <MapContainer center={[13.75, 100.5]} zoom={6} style={{ height: '100%', width: '100%', background: '#0f172a' }}>
       <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' />
@@ -308,7 +265,7 @@ const LeafletMapComponent = ({ data }) => {
           <Popup className="digital-popup">
             <div className="font-sans text-sm min-w-[200px] text-slate-800">
               <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
-                <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time}</span>
+                <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time} น.</span>
               </strong>
               <div className="mb-2">
                  <div className="text-xs font-bold text-slate-500 mb-1">{item.category}</div>
@@ -322,7 +279,6 @@ const LeafletMapComponent = ({ data }) => {
           </Popup>
         </CircleMarker>
       ))}
-      <MapAutoFit markers={data} />
     </MapContainer>
   );
 };
@@ -344,7 +300,6 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
-  // Calculate Date Range
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -354,7 +309,6 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
-  // Fetch Data
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -364,29 +318,20 @@ export default function App() {
              fetch(SHEET_ENFORCE_URL).then(r => r.text()).catch(e => ''),
              fetch(SHEET_SAFETY_URL).then(r => r.text()).catch(e => '')
         ]);
-        
         const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
         const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
         const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
-        
-        // Filter out completely empty or invalid rows to prevent errors
-        const allData = [...dataTraffic, ...dataEnforce, ...dataSafety].filter(d => d.date);
-        
-        console.log("Loaded Data:", allData.length); // Debug
-        setRawData(allData);
-      } catch (error) { console.error("Fetch Error:", error); setRawData([]); } 
-      finally { setLoading(false); }
+        setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
+      } catch (error) { console.error("Fetch Error:", error); setRawData([]); } finally { setLoading(false); }
     };
     fetchData();
   }, []);
 
-  // Unique Roads for Filter Options
   const uniqueRoads = useMemo(() => {
-    const roads = new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10)); // Filter out junk
+    const roads = new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10));
     return Array.from(roads).sort();
   }, [rawData]);
 
-  // 1. Log Data (Filtered by Date)
   const logTableData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -397,30 +342,23 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 2. Active State Data (Calculated from ALL Data)
   const activeVisualData = useMemo(() => {
     const sortedLog = [...rawData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
     const otherEvents = []; 
-    
     sortedLog.forEach(row => {
-        // Filter by user selection (Div/St/Road/Cat) ONLY
         const passCategory = selectedCategories.length === 0 || selectedCategories.includes(row.category);
         const passRoad = selectedRoads.length === 0 || selectedRoads.includes(row.road);
         const passDiv = !filterDiv || row.div === filterDiv;
         const passSt = !filterSt || row.st === filterSt;
-
         if (!passCategory || !passRoad || !passDiv || !passSt) return;
 
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-        
-        // Logic for Sticky States (Traffic & Special Lanes)
         if (row.category === 'จราจรติดขัด') { activeStates.set(locKey, row); } 
         else if (row.category === 'จราจรปกติ') { activeStates.delete(locKey); } 
         else if (row.category === 'ช่องทางพิเศษ') { activeStates.set(`LANE-${locKey}`, row); } 
         else if (row.category === 'ปิดช่องทางพิเศษ') { activeStates.delete(`LANE-${locKey}`); } 
         else { 
-            // For one-time events (Accidents/Arrests), check Date Filter
             let passDate = true;
             if (filterStartDate && filterEndDate) passDate = row.date >= filterStartDate && row.date <= filterEndDate;
             if (passDate) otherEvents.push(row);
@@ -429,14 +367,12 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 3. Stats
   const specialLaneStats = useMemo(() => {
     const openCount = activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
     const closedCount = logTableData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
     return { open: openCount, closed: closedCount };
   }, [activeVisualData, logTableData]);
 
-  // Charts
   const roadChartConfig = useMemo(() => {
     const roadStats = {};
     activeVisualData.forEach(d => {
@@ -469,14 +405,11 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200">
-      
-      {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <div><h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2"><div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div><span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span></h1></div>
         <div className="flex items-center gap-3"><span className="text-[10px] text-slate-500 font-mono hidden md:inline">DATA FEED: LIVE</span><button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /> REFRESH</button></div>
       </div>
 
-      {/* Filters */}
       <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end">
           <div className="col-span-2 md:col-span-1 lg:col-span-1">
              <label className="text-[10px] text-yellow-400 font-bold mb-1 block"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
@@ -491,11 +424,10 @@ export default function App() {
           </div>
           <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุกกองฯ</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
           <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี (ส.ทล.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="หมวดหมู่ (เลือกได้หลายข้อ)" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง (เลือกได้หลายข้อ)" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="หมวดหมู่" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
       </div>
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KPI_Card title="Active Events" value={activeVisualData.length} subtext="เหตุการณ์คงค้าง" icon={ListChecks} accentColor="bg-slate-400" />
         <KPI_Card title="เปิดช่องทาง" value={specialLaneStats.open} subtext="กำลังเปิด (Active)" icon={ArrowRightCircle} accentColor="bg-green-500" />
@@ -505,7 +437,6 @@ export default function App() {
         <KPI_Card title="จับกุม" value={activeVisualData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
       </div>
 
-      {/* Main Content */}
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 mb-4">
         <div className="lg:col-span-4 bg-slate-800 rounded-lg border border-slate-700 h-[350px] lg:h-[400px] relative overflow-hidden">
           <div className="absolute top-2 left-2 z-[400] bg-slate-900/80 px-2 py-0.5 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> CURRENT STATUS VIEW</div>
@@ -523,7 +454,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* Log Table */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-xs font-bold flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> บันทึกเหตุการณ์ทั้งหมด (History Log)</h3></div>
         <div className="overflow-x-auto">
