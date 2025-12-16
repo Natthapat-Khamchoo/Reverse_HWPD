@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   RotateCcw, ListChecks, AlertTriangle, TrafficCone, 
   Monitor, Calendar, Siren, CarFront, Route, 
-  ShieldAlert, ShieldCheck, CheckCircle2, ChevronDown, X
+  ShieldAlert, ShieldCheck, CheckCircle2, ChevronDown, X,
+  ArrowRightCircle, StopCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS, ArcElement, Tooltip, Legend, 
@@ -24,7 +25,6 @@ const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR
 const DIVISION_COLORS = { "1": "#EF4444", "2": "#3B82F6", "3": "#10B981", "4": "#FBBF24", "5": "#A78BFA", "6": "#EC4899", "7": "#22D3EE", "8": "#6366F1" };
 const ORG_STRUCTURE = { "1": 6, "2": 6, "3": 5, "4": 5, "5": 6, "6": 6, "7": 5, "8": 4 };
 
-// Categories for Multi-select
 const EVENT_CATEGORIES = [
   'อุบัติเหตุใหญ่', 'อุบัติเหตุทั่วไป', 'จับกุม', 'ว.43', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ปิดช่องทางพิเศษ', 'จราจรปกติ'
 ];
@@ -36,7 +36,6 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef(null);
 
-  // Close when clicking outside
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -128,6 +127,8 @@ const processSheetData = (rawData) => {
     if (isNaN(lat) || isNaN(lng)) { lat = 13.75 + (Math.random() - 0.5) * 0.1; lng = 100.50 + (Math.random() - 0.5) * 0.1; }
 
     let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
+    let reportFormat = 'TRAFFIC'; // Default format (TRAFFIC, ENFORCE, SAFETY)
+
     const majorAccident = row['เหตุน่าสนใจ (กก.1-7)/ภัยพิบัติ'] || row['เหตุน่าสนใจ'] || '';
     const arrest = row['จับกุม/เมา'] || '';
     const checkpoint = row['ว.43 (จุด/ผล)'] || row['ว.43'] || '';
@@ -136,23 +137,38 @@ const processSheetData = (rawData) => {
     const traffic = row['สภาพจราจร'] || '';
     const tailback = row['ท้ายแถว'] || '';
 
-    if (majorAccident && majorAccident !== '-') { mainCategory = 'อุบัติเหตุใหญ่'; detailText = majorAccident; statusColor = 'bg-red-600'; }
-    else if (arrest && arrest !== '-') { mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600'; }
-    else if (checkpoint && checkpoint !== '-') { mainCategory = 'ว.43'; detailText = checkpoint; statusColor = 'bg-indigo-500'; }
-    else if (generalAccident && generalAccident !== '-') { mainCategory = 'อุบัติเหตุทั่วไป'; detailText = generalAccident; statusColor = 'bg-orange-500'; }
-    else if (specialLane && specialLane !== '-') { 
-      mainCategory = (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) ? 'ปิดช่องทางพิเศษ' : 'ช่องทางพิเศษ';
+    if (majorAccident && majorAccident !== '-') { 
+        mainCategory = 'อุบัติเหตุใหญ่'; detailText = majorAccident; statusColor = 'bg-red-600'; 
+        reportFormat = 'SAFETY';
+    } else if (arrest && arrest !== '-') { 
+        mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600'; 
+        reportFormat = 'ENFORCE';
+    } else if (checkpoint && checkpoint !== '-') { 
+        mainCategory = 'ว.43'; detailText = checkpoint; statusColor = 'bg-indigo-500'; 
+        reportFormat = 'ENFORCE';
+    } else if (generalAccident && generalAccident !== '-') { 
+        mainCategory = 'อุบัติเหตุทั่วไป'; detailText = generalAccident; statusColor = 'bg-orange-500'; 
+        reportFormat = 'SAFETY';
+    } else if (specialLane && specialLane !== '-') { 
+      if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก') || specialLane.includes('สิ้นสุด')) {
+          mainCategory = 'ปิดช่องทางพิเศษ';
+      } else {
+          mainCategory = 'ช่องทางพิเศษ';
+      }
       detailText = specialLane; statusColor = 'bg-green-500'; 
+      reportFormat = 'TRAFFIC';
     } else if (traffic) {
       if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('หยุดนิ่ง')) { mainCategory = 'จราจรติดขัด'; detailText = `ท้ายแถว: ${tailback}`; statusColor = 'bg-yellow-500'; }
       else if (traffic.includes('คล่องตัว') || traffic.includes('ปกติ')) { mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500'; }
       else { mainCategory = 'สภาพจราจร'; detailText = traffic; statusColor = 'bg-slate-500'; }
+      reportFormat = 'TRAFFIC';
     }
 
     return {
       id: index, date: dateStr, time: timeStr, div: div, st: st, category: mainCategory, detail: detailText,
       road: row['ทล.'] || '-', km: row['กม.'] || '-', dir: row['ขา'] || row['ทิศทาง'] || '-',
-      traffic_status: traffic, tailback: tailback, special_lane: specialLane, lat: lat, lng: lng, colorClass: statusColor,
+      traffic_status: traffic, tailback: tailback, special_lane: specialLane, 
+      lat: lat, lng: lng, colorClass: statusColor, reportFormat: reportFormat,
       timestamp: new Date(`${dateStr}T${timeStr}`).getTime()
     };
   });
@@ -193,13 +209,33 @@ const LeafletMapComponent = ({ data }) => {
       {data.map(item => (
         <CircleMarker key={item.id} center={[item.lat, item.lng]} radius={6} pathOptions={{ color: '#fff', fillColor: getMarkerColor(item.category), fillOpacity: 0.9, weight: 1.5 }}>
           <Popup className="digital-popup">
-            <div className="font-sans text-sm min-w-[180px] text-slate-800">
+            <div className="font-sans text-sm min-w-[200px] text-slate-800">
               <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
                 <span>กก.{item.div} ส.ทล.{item.st}</span> <span className={`text-[10px] text-white px-2 py-0.5 rounded ${item.colorClass}`}>{item.time}</span>
               </strong>
-              <div className="space-y-1">
-                <div className="text-xs font-bold text-slate-600">สถานะ: {item.category}</div><div className="text-sm text-slate-800">{item.detail || '-'}</div>
-                <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1">ทล.{item.road} กม.{item.km} ({item.dir})</div>
+              {/* DISPLAY FORMAT LOGIC */}
+              {item.reportFormat === 'SAFETY' && (
+                 <div className="bg-red-50 p-2 rounded border border-red-100 mb-2">
+                    <div className="text-xs font-bold text-red-600 mb-1 flex items-center gap-1"><AlertTriangle size={12}/> อุบัติเหตุ/ภัยพิบัติ</div>
+                    <div className="text-sm text-slate-700">{item.detail}</div>
+                 </div>
+              )}
+              {item.reportFormat === 'ENFORCE' && (
+                 <div className="bg-purple-50 p-2 rounded border border-purple-100 mb-2">
+                    <div className="text-xs font-bold text-purple-600 mb-1 flex items-center gap-1"><ShieldAlert size={12}/> ผลการจับกุม/ว.43</div>
+                    <div className="text-sm text-slate-700">{item.detail}</div>
+                 </div>
+              )}
+              {item.reportFormat === 'TRAFFIC' && (
+                 <div className="bg-yellow-50 p-2 rounded border border-yellow-100 mb-2">
+                    <div className="text-xs font-bold text-yellow-700 mb-1 flex items-center gap-1"><TrafficCone size={12}/> สภาพจราจร</div>
+                    <div className="text-sm text-slate-700">{item.detail}</div>
+                 </div>
+              )}
+              
+              <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between">
+                <span>ทล.{item.road} กม.{item.km}</span>
+                <span className="font-bold">{item.dir}</span>
               </div>
             </div>
           </Popup>
@@ -224,8 +260,6 @@ export default function App() {
   const [customEnd, setCustomEnd] = useState(todayStr);
   const [filterDiv, setFilterDiv] = useState('');
   const [filterSt, setFilterSt] = useState(''); 
-  
-  // Multi-select States
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
@@ -265,14 +299,9 @@ export default function App() {
     return rawData.filter(item => {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-      
-      // Multi-select Logic
       const passCategory = selectedCategories.length === 0 || selectedCategories.includes(item.category);
       const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
-
-      return passDate && passCategory && passRoad &&
-        (!filterDiv || item.div === filterDiv) && 
-        (!filterSt || item.st === filterSt);
+      return passDate && passCategory && passRoad && (!filterDiv || item.div === filterDiv) && (!filterSt || item.st === filterSt);
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
@@ -292,7 +321,16 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [logTableData]);
 
-  // Chart Data: Top Roads
+  // 3. Special Lane Counts (Separate Logic)
+  const specialLaneStats = useMemo(() => {
+    // Open: นับจาก Active State ที่เป็น 'ช่องทางพิเศษ'
+    const openCount = activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    // Closed: นับจาก Log ที่เป็น 'ปิดช่องทางพิเศษ' (Cumulative in period)
+    const closedCount = logTableData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    return { open: openCount, closed: closedCount };
+  }, [activeVisualData, logTableData]);
+
+  // Chart Data
   const roadChartConfig = useMemo(() => {
     const roadStats = {};
     activeVisualData.forEach(d => {
@@ -304,35 +342,22 @@ export default function App() {
     const sortedRoads = Object.entries(roadStats).sort((a,b) => b[1] - a[1]).slice(0, 7);
     return {
        labels: sortedRoads.map(i => i[0]),
-       datasets: [{
-          label: 'จำนวนจุดวิกฤต/งาน',
-          data: sortedRoads.map(i => i[1]),
-          backgroundColor: '#F59E0B',
-          borderRadius: 4,
-          barThickness: 20
-       }]
+       datasets: [{ label: 'จำนวนจุด', data: sortedRoads.map(i => i[1]), backgroundColor: '#F59E0B', borderRadius: 4, barThickness: 20 }]
     };
   }, [activeVisualData]);
 
-  // Chart Data: Categories
-  const categoryStats = useMemo(() => {
+  const catChartData = useMemo(() => {
     const counts = {}; 
     activeVisualData.forEach(d => { 
       let key = d.category;
       if (key.includes('จราจร')) key = 'จราจรติดขัด'; 
       counts[key] = (counts[key] || 0) + 1; 
     });
-    return counts;
+    return {
+      labels: Object.keys(counts),
+      datasets: [{ data: Object.values(counts), backgroundColor: ['#EF4444', '#A855F7', '#6366F1', '#F97316', '#22C55E', '#EAB308', '#64748B'], borderWidth: 0 }]
+    };
   }, [activeVisualData]);
-
-  const catChartData = {
-    labels: Object.keys(categoryStats),
-    datasets: [{
-      data: Object.values(categoryStats),
-      backgroundColor: ['#EF4444', '#A855F7', '#6366F1', '#F97316', '#22C55E', '#EAB308', '#64748B'],
-      borderWidth: 0
-    }]
-  };
 
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
@@ -345,10 +370,8 @@ export default function App() {
         <div className="flex items-center gap-3"><span className="text-[10px] text-slate-500 font-mono hidden md:inline">DATA FEED: LIVE</span><button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /> REFRESH</button></div>
       </div>
 
-      {/* Filters (Grid Layout) */}
+      {/* Filters */}
       <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end">
-          
-          {/* Date Picker (Custom) */}
           <div className="col-span-2 md:col-span-1 lg:col-span-1">
              <label className="text-[10px] text-yellow-400 font-bold mb-1 block"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
              <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded mb-1" value={dateRangeOption} onChange={e => setDateRangeOption(e.target.value)}>
@@ -358,52 +381,22 @@ export default function App() {
                <option value="all">ทั้งหมด</option>
                <option value="custom">กำหนดเอง (Custom)</option>
              </select>
-             {dateRangeOption === 'custom' && (
-               <div className="flex gap-1 animate-in fade-in zoom-in duration-200">
-                 <input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customStart} onChange={e => setCustomStart(e.target.value)} />
-                 <input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customEnd} onChange={e => setCustomEnd(e.target.value)} />
-               </div>
-             )}
+             {dateRangeOption === 'custom' && (<div className="flex gap-1 animate-in fade-in zoom-in duration-200"><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customStart} onChange={e => setCustomStart(e.target.value)} /><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>)}
           </div>
-
-          {/* Division & Station */}
-          <div className="col-span-1">
-             <label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label>
-             <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุกกองฯ</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select>
-          </div>
-          <div className="col-span-1">
-             <label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี (ส.ทล.)</label>
-             <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select>
-          </div>
-
-          {/* 🔥 Multi-Select: Event Category */}
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative">
-            <MultiSelectDropdown 
-              label="หมวดหมู่ (เลือกได้หลายข้อ)" 
-              options={EVENT_CATEGORIES} 
-              selected={selectedCategories} 
-              onChange={setSelectedCategories} 
-            />
-          </div>
-
-          {/* 🔥 Multi-Select: Roads */}
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative">
-            <MultiSelectDropdown 
-              label="เส้นทาง (เลือกได้หลายข้อ)" 
-              options={uniqueRoads} 
-              selected={selectedRoads} 
-              onChange={setSelectedRoads} 
-            />
-          </div>
+          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุกกองฯ</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
+          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี (ส.ทล.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="หมวดหมู่ (เลือกได้หลายข้อ)" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง (เลือกได้หลายข้อ)" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      {/* KPI Cards (With Split Lane Stats) */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KPI_Card title="Active Events" value={activeVisualData.length} subtext="เหตุการณ์คงค้าง" icon={ListChecks} accentColor="bg-slate-400" />
+        <KPI_Card title="เปิดช่องทาง" value={specialLaneStats.open} subtext="กำลังเปิด (Active)" icon={ArrowRightCircle} accentColor="bg-green-500" />
+        <KPI_Card title="ปิดช่องทาง" value={specialLaneStats.closed} subtext="สะสมในรอบวัน" icon={StopCircle} accentColor="bg-slate-600" />
+        <KPI_Card title="รถติดขัด" value={activeVisualData.filter(d => d.category === 'จราจรติดขัด').length} subtext="วิกฤต/หนาแน่น" icon={TrafficCone} accentColor="bg-yellow-500" />
         <KPI_Card title="อุบัติเหตุ" value={activeVisualData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
         <KPI_Card title="จับกุม" value={activeVisualData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
-        <KPI_Card title="รถติดขัด" value={activeVisualData.filter(d => d.category === 'จราจรติดขัด').length} subtext="วิกฤต/หนาแน่น" icon={TrafficCone} accentColor="bg-yellow-500" />
-        <KPI_Card title="ช่องทางพิเศษ" value={activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="เปิดใช้งานอยู่" icon={Route} accentColor="bg-green-500" />
       </div>
 
       {/* Main Content */}
@@ -415,9 +408,7 @@ export default function App() {
         <div className="lg:col-span-6 grid grid-cols-1 md:grid-cols-2 gap-4">
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full">
              <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">ถนนที่มีเหตุการณ์สูงสุด (Top Roads)</h3>
-             <div className="flex-1 w-full h-full relative">
-               <Bar data={roadChartConfig} options={{ indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94a3b8', stepSize: 1 }, grid: { color: '#334155' } }, y: { ticks: { color: '#fff', font: { weight: 'bold' } }, grid: { display: false } } } }} />
-             </div>
+             <div className="flex-1 w-full h-full relative"><Bar data={roadChartConfig} options={{ indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#94a3b8', stepSize: 1 }, grid: { color: '#334155' } }, y: { ticks: { color: '#fff', font: { weight: 'bold' } }, grid: { display: false } } } }} /></div>
            </div>
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full">
              <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600">สัดส่วนประเภทเหตุการณ์</h3>
@@ -426,7 +417,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Log Table */}
+      {/* Log Table (3 Formats) */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden">
         <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-xs font-bold flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse"></span> บันทึกเหตุการณ์ทั้งหมด (History Log)</h3></div>
         <div className="overflow-x-auto">
@@ -438,7 +429,12 @@ export default function App() {
                   <td className="px-4 py-2 font-mono text-yellow-400 align-top">{item.time} น.<div className="text-[9px] text-slate-500">{item.date}</div></td>
                   <td className="px-4 py-2 align-top"><span className="bg-slate-900 border border-slate-600 px-1.5 py-0.5 rounded text-[10px]">ส.ทล.{item.st} กก.{item.div}</span></td>
                   <td className="px-4 py-2 align-top"><span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white ${item.colorClass}`}>{item.category === 'จราจรปกติ' ? <span className="flex items-center gap-1"><CheckCircle2 size={10}/> เข้าสู่ภาวะปกติ</span> : item.category}</span></td>
-                  <td className="px-4 py-2 align-top"><div className="font-medium text-slate-200">{item.detail || '-'}</div></td>
+                  <td className="px-4 py-2 align-top">
+                     {/* 3 FORMAT DISPLAY IN TABLE */}
+                     {item.reportFormat === 'TRAFFIC' && <div className="text-slate-200 border-l-2 border-yellow-500 pl-2">{item.detail || '-'}</div>}
+                     {item.reportFormat === 'ENFORCE' && <div className="text-purple-200 border-l-2 border-purple-500 pl-2">{item.detail || '-'}</div>}
+                     {item.reportFormat === 'SAFETY' && <div className="text-red-200 border-l-2 border-red-500 pl-2">{item.detail || '-'}</div>}
+                  </td>
                   <td className="px-4 py-2 align-top text-[10px] font-mono text-slate-400"><div>ทล.{item.road} กม.{item.km}</div><div>{item.dir}</div></td>
                 </tr>
               )) : <tr><td colSpan="5" className="p-6 text-center text-slate-500">ไม่พบข้อมูล</td></tr>}
