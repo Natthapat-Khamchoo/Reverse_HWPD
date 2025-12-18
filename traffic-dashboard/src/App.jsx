@@ -19,6 +19,7 @@ import 'leaflet/dist/leaflet.css';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 ChartJS.defaults.color = '#94a3b8'; 
 ChartJS.defaults.borderColor = '#334155'; 
+ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif"; // แนะนำให้ใช้ font ภาษาไทยถ้ามี
 
 // URL Google Sheets (CSV)
 const SHEET_TRAFFIC_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?gid=617598886&single=true&output=csv"; 
@@ -30,7 +31,7 @@ const ORG_STRUCTURE = { "1": 6, "2": 6, "3": 5, "4": 5, "5": 6, "6": 6, "7": 5, 
 const EVENT_CATEGORIES = ['อุบัติเหตุใหญ่', 'อุบัติเหตุทั่วไป', 'จับกุม', 'ว.43', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ปิดช่องทางพิเศษ', 'จราจรปกติ'];
 
 // -----------------------------------------------------------------------------
-// Component: System Loading Screen (New Feature)
+// Component: System Loading Screen (ภาษาไทย)
 // -----------------------------------------------------------------------------
 const SystemLoader = () => (
   <div className="fixed inset-0 z-[9999] bg-[#020617] flex flex-col items-center justify-center font-mono">
@@ -44,12 +45,12 @@ const SystemLoader = () => (
     </div>
     
     <div className="mt-8 text-center space-y-2">
-      <h2 className="text-xl font-bold text-white tracking-[0.3em] uppercase animate-pulse">
-        System Initializing
+      <h2 className="text-xl font-bold text-white tracking-[0.1em] animate-pulse">
+        กำลังเริ่มต้นระบบปฏิบัติการ
       </h2>
       <div className="flex items-center justify-center gap-2 text-xs text-green-500">
         <Server size={12} />
-        <span>CONNECTING TO HIGHWAY POLICE DATABASE...</span>
+        <span>กำลังเชื่อมต่อฐานข้อมูลตำรวจทางหลวง...</span>
       </div>
       <div className="flex gap-1 justify-center mt-4">
         <div className="w-1 h-4 bg-yellow-600 animate-[pulse_1s_ease-in-out_infinite]"></div>
@@ -81,7 +82,7 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
     <div className="relative w-full" ref={dropdownRef}>
       <label className="text-[10px] text-slate-400 font-bold mb-1 block">{label}</label>
       <button onClick={() => setIsOpen(!isOpen)} className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded flex justify-between items-center hover:border-slate-500 transition-colors">
-        <span className="truncate">{selected.length === 0 ? "ทั้งหมด (All)" : `${selected.length} รายการ`}</span>
+        <span className="truncate">{selected.length === 0 ? "เลือกทั้งหมด" : `${selected.length} รายการ`}</span>
         <ChevronDown size={14} className={`transform transition-transform ${isOpen ? 'rotate-180' : ''}`} />
       </button>
       {isOpen && (
@@ -101,7 +102,7 @@ const MultiSelectDropdown = ({ label, options, selected, onChange }) => {
 };
 
 // -----------------------------------------------------------------------------
-// Core Logic: Data Processing
+// Core Logic: Data Processing (เหมือนเดิม)
 // -----------------------------------------------------------------------------
 const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en-CA', { timeZone: 'Asia/Bangkok' });
 
@@ -163,14 +164,12 @@ const processSheetData = (rawData, sourceFormat) => {
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     
-    // Garbage Filter
     const checkStr = (timestampRaw + dateRaw);
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
     let dateStr = '';
     let timeStr = '00:00';
 
-    // Parse Date
     if (dateRaw && dateRaw.includes('/')) {
         const [d, m, y] = dateRaw.split('/');
         let year = parseInt(y);
@@ -185,7 +184,6 @@ const processSheetData = (rawData, sourceFormat) => {
         } else { dateStr = parts[0]; }
     }
 
-    // Parse Time
     if (timeRaw) { timeStr = formatTime24(timeRaw); } 
     else if (timestampRaw) {
         const parts = timestampRaw.split(' ');
@@ -194,7 +192,6 @@ const processSheetData = (rawData, sourceFormat) => {
 
     if (!dateStr || dateStr.length < 8) return null;
 
-    // Unit & Location
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
@@ -215,13 +212,11 @@ const processSheetData = (rawData, sourceFormat) => {
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
-    // Geolocation Fallback (Jitter around Bangkok)
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
     if (isNaN(lat) || lat === 0) lat = 13.75 + (Math.random() - 0.5) * 2;
     if (isNaN(lng) || lng === 0) lng = 100.50 + (Math.random() - 0.5) * 2;
 
-    // Categorization
     let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
 
     if (sourceFormat === 'SAFETY') {
@@ -353,7 +348,6 @@ export default function App() {
           console.error("Critical Error Fetching Data:", err); 
           setError(true);
       } finally { 
-          // Artificial Delay for Smooth UX (System Boot Effect)
           setTimeout(() => setLoading(false), 1200); 
       }
     };
@@ -441,10 +435,10 @@ export default function App() {
   if (error) return (
       <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-center p-6">
           <AlertOctagon size={48} className="text-red-500 mb-4 animate-bounce" />
-          <h1 className="text-2xl font-bold text-white mb-2">System Connection Failed</h1>
+          <h1 className="text-2xl font-bold text-white mb-2">การเชื่อมต่อล้มเหลว</h1>
           <p className="text-slate-400 mb-6 max-w-md">ไม่สามารถเชื่อมต่อกับฐานข้อมูล Google Sheets ได้ กรุณาตรวจสอบสิทธิ์การเข้าถึง หรือสถานะเครือข่ายของท่าน</p>
           <button onClick={() => window.location.reload()} className="bg-slate-800 hover:bg-slate-700 text-white px-6 py-2 rounded-lg border border-slate-600 flex items-center gap-2 transition-all">
-              <RotateCcw size={16}/> Re-Initialize System
+              <RotateCcw size={16}/> เริ่มระบบใหม่
           </button>
       </div>
   );
@@ -454,47 +448,47 @@ export default function App() {
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <div><h1 className="text-xl md:text-2xl font-bold text-white flex items-center gap-2"><div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div><span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span></h1></div>
-        <div className="flex items-center gap-3"><span className="text-[10px] text-green-500 font-mono flex items-center gap-1"><Activity size={10} className="animate-pulse"/> LIVE FEED</span><button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs transition-colors"><RotateCcw size={14} /> REFRESH</button></div>
+        <div className="flex items-center gap-3"><span className="text-[10px] text-green-500 font-mono flex items-center gap-1"><Activity size={10} className="animate-pulse"/> ข้อมูลสด (Live)</span><button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs transition-colors"><RotateCcw size={14} /> รีเฟรช</button></div>
       </div>
 
       {/* Control Panel */}
       <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md">
           <div className="col-span-2 md:col-span-1 lg:col-span-1">
-             <label className="text-[10px] text-yellow-400 font-bold mb-1 block uppercase tracking-wider"><Calendar size={10} className="inline mr-1"/> Timestamp Filter</label>
+             <label className="text-[10px] text-yellow-400 font-bold mb-1 block uppercase tracking-wider"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
              <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded mb-1 focus:ring-1 focus:ring-yellow-500 outline-none" value={dateRangeOption} onChange={e => setDateRangeOption(e.target.value)}>
-               <option value="today">วันนี้ (Today)</option><option value="yesterday">เมื่อวาน</option><option value="last7">7 วันย้อนหลัง</option><option value="all">ทั้งหมด</option><option value="custom">กำหนดเอง (Custom)</option>
+               <option value="today">วันนี้</option><option value="yesterday">เมื่อวาน</option><option value="last7">7 วันย้อนหลัง</option><option value="all">ทั้งหมด</option><option value="custom">กำหนดเอง</option>
              </select>
              {dateRangeOption === 'custom' && (<div className="flex gap-1 animate-in fade-in zoom-in duration-200"><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customStart} onChange={e => setCustomStart(e.target.value)} /><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>)}
           </div>
-          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">Division (กก.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">All Divisions</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
-          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">Station (ส.ทล.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">All Stations</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="Event Categories" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
-          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="Highways (Routes)" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
+          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ (กก.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุกกองกำกับการ</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
+          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี (ส.ทล.)</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="ประเภทเหตุการณ์" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
+          <div className="col-span-2 md:col-span-1 lg:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง (ทล.)" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
       </div>
 
       {/* KPI Stats */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
-        <KPI_Card title="Active Events" value={activeVisualData.length} subtext="เหตุการณ์คงค้าง" icon={ListChecks} accentColor="bg-slate-400" />
-        <KPI_Card title="Special Lanes" value={activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="กำลังเปิดใช้งาน" icon={ArrowRightCircle} accentColor="bg-green-500" />
-        <KPI_Card title="Lanes Closed" value={logTableData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="สะสมวันนี้" icon={StopCircle} accentColor="bg-slate-600" />
-        <KPI_Card title="Traffic Jam" value={activeVisualData.filter(d => d.category === 'จราจรติดขัด').length} subtext="วิกฤต/หนาแน่น" icon={TrafficCone} accentColor="bg-yellow-500" />
-        <KPI_Card title="Accidents" value={activeVisualData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
-        <KPI_Card title="Arrested" value={activeVisualData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
+        <KPI_Card title="เหตุการณ์คงค้าง" value={activeVisualData.length} subtext="ยังไม่ยุติ" icon={ListChecks} accentColor="bg-slate-400" />
+        <KPI_Card title="เปิดช่องทางพิเศษ" value={activeVisualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="กำลังเปิดใช้งาน" icon={ArrowRightCircle} accentColor="bg-green-500" />
+        <KPI_Card title="ปิดช่องทางพิเศษ" value={logTableData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="สะสมวันนี้" icon={StopCircle} accentColor="bg-slate-600" />
+        <KPI_Card title="จราจรติดขัด" value={activeVisualData.filter(d => d.category === 'จราจรติดขัด').length} subtext="วิกฤต/หนาแน่น" icon={TrafficCone} accentColor="bg-yellow-500" />
+        <KPI_Card title="อุบัติเหตุ" value={activeVisualData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
+        <KPI_Card title="จับกุม" value={activeVisualData.filter(d => d.category === 'จับกุม').length} subtext="ผู้กระทำผิด" icon={ShieldAlert} accentColor="bg-purple-500" />
       </div>
 
       {/* Map & Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-10 gap-4 mb-4">
         <div className="lg:col-span-4 bg-slate-800 rounded-lg border border-slate-700 h-[350px] lg:h-[400px] relative overflow-hidden shadow-md">
-          <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-2 py-1 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-2 shadow-sm"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> SATELLITE LINK ESTABLISHED</div>
+          <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-2 py-1 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-2 shadow-sm"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> ระบบแผนที่ทำงานปกติ</div>
           <LeafletMapComponent data={activeVisualData} />
         </div>
         <div className="lg:col-span-6 grid grid-cols-1 md:grid-cols-2 gap-4">
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full shadow-md">
-             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600 flex justify-between"><span>TOP ROADS INCIDENTS</span> <Route size={14}/></h3>
+             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600 flex justify-between"><span>สถิติถนนที่มีเหตุสูงสุด</span> <Route size={14}/></h3>
              <div className="flex-1 w-full h-full relative"><Bar data={roadChartConfig} options={{ indexAxis: 'y', maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { ticks: { color: '#64748b', stepSize: 1 }, grid: { color: '#1e293b' } }, y: { ticks: { color: '#e2e8f0', font: { weight: 'bold', size: 10 } }, grid: { display: false } } } }} /></div>
            </div>
            <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 flex flex-col h-[200px] md:h-full shadow-md">
-             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600 flex justify-between"><span>EVENT DISTRIBUTION</span> <ListChecks size={14}/></h3>
+             <h3 className="text-xs font-bold text-white mb-2 pb-1 border-b border-slate-600 flex justify-between"><span>สัดส่วนประเภทเหตุการณ์</span> <ListChecks size={14}/></h3>
              <div className="flex-1 w-full h-full relative flex items-center justify-center"><Doughnut data={catChartData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { color: '#94a3b8', boxWidth: 8, font: { size: 10 } } } } }} /></div>
            </div>
         </div>
@@ -502,10 +496,10 @@ export default function App() {
 
       {/* Data Logs */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 overflow-hidden shadow-lg">
-        <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-xs font-bold flex items-center gap-2"><Siren size={14} className="text-yellow-500"/> SYSTEM LOGS: ALL EVENTS</h3></div>
+        <div className="px-4 py-2 bg-slate-900 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-xs font-bold flex items-center gap-2"><Siren size={14} className="text-yellow-500"/> บันทึกเหตุการณ์ทั้งหมด (System Logs)</h3></div>
         <div className="overflow-x-auto max-h-[500px]">
           <table className="w-full text-xs text-left text-slate-300">
-            <thead className="uppercase bg-slate-900/80 text-slate-500 sticky top-0 z-10 backdrop-blur-sm"><tr><th className="px-4 py-2 w-[100px]">Time</th><th className="px-4 py-2 w-[110px]">Unit</th><th className="px-4 py-2 w-[120px]">Category</th><th className="px-4 py-2">Details</th><th className="px-4 py-2">Location</th></tr></thead>
+            <thead className="uppercase bg-slate-900/80 text-slate-500 sticky top-0 z-10 backdrop-blur-sm"><tr><th className="px-4 py-2 w-[100px]">เวลา</th><th className="px-4 py-2 w-[110px]">หน่วยงาน</th><th className="px-4 py-2 w-[120px]">ประเภท</th><th className="px-4 py-2">รายละเอียด</th><th className="px-4 py-2">สถานที่</th></tr></thead>
             <tbody className="divide-y divide-slate-700">
               {logTableData.length > 0 ? logTableData.map((item, idx) => (
                 <tr key={idx} className={`hover:bg-slate-700/50 transition-colors ${item.category.includes('ปกติ') || item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
@@ -520,7 +514,7 @@ export default function App() {
                   <td className="px-4 py-2 align-top text-[10px] font-mono text-slate-400"><div>ทล.{item.road} กม.{item.km}</div><div>{item.dir}</div></td>
                 </tr>
               )) : (
-                 <tr><td colSpan="5" className="p-12 text-center text-slate-500 flex flex-col items-center gap-2"><AlertTriangle size={24}/><span>No Data Found matching filters</span></td></tr>
+                 <tr><td colSpan="5" className="p-12 text-center text-slate-500 flex flex-col items-center gap-2"><AlertTriangle size={24}/><span>ไม่พบข้อมูลตามเงื่อนไข</span></td></tr>
               )}
             </tbody>
           </table>
