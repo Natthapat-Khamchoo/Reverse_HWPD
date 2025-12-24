@@ -3,14 +3,14 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp // เพิ่ม Icon
+  TrendingUp 
 } from 'lucide-react';
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend,
-  PointElement, LineElement // เพิ่ม Element สำหรับกราฟเส้น
+  Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
 } from 'chart.js';
-import { Bar, Line } from 'react-chartjs-2'; // เพิ่ม Line
+import { Bar } from 'react-chartjs-2';
 
+// Imports
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES, CATEGORY_COLORS } from './constants/config';
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
@@ -19,8 +19,8 @@ import MultiSelectDropdown from './components/MultiSelectDropdown';
 import KPI_Card from './components/KPICard';
 import MapViewer from './components/MapViewer';
 
-// Register ChartJS Components
-ChartJS.register(CategoryScale, LinearScale, BarElement, PointElement, LineElement, Title, Tooltip, Legend);
+// Register ChartJS
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 ChartJS.defaults.color = '#94a3b8'; 
 ChartJS.defaults.borderColor = '#334155'; 
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
@@ -31,7 +31,7 @@ export default function App() {
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
 
-  // --- Main Controls (Dashboard) ---
+  // --- Main Controls ---
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(getThaiDateStr());
   const [customEnd, setCustomEnd] = useState(getThaiDateStr());
@@ -40,13 +40,13 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
-  // --- New: Trend Chart Controls (แยกต่างหาก) ---
-  // Default: ย้อนหลัง 7 วันสำหรับการเปรียบเทียบ
+  // --- Trend Chart Controls ---
+  // Default 7 days back
   const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
   const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
   const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
 
-  // Date Logic (Main)
+  // Date Logic (Main Dashboard)
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -79,7 +79,7 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // --- Filtered Data (Main Dashboard) ---
+  // --- Filtered Data (Main) ---
   const filteredData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -88,12 +88,12 @@ export default function App() {
       const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
       const passDiv = !filterDiv || item.div === filterDiv;
       const passSt = !filterSt || item.st === filterSt;
-      if (item.category.includes('อุบัติเหตุ') && item.div !== '8') return false; // Rule: อุบัติเหตุเฉพาะ กก.8
+      if (item.category.includes('อุบัติเหตุ') && item.div !== '8') return false; 
       return passDate && passCategory && passRoad && passDiv && passSt;
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // --- Active Map Data ---
+  // --- Map Data ---
   const mapData = useMemo(() => {
     const sortedLog = [...filteredData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
@@ -110,7 +110,7 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [filteredData]);
 
-  // --- Stats (Main) ---
+  // --- Stats (Stacked Bar Div) ---
   const stats = useMemo(() => {
     const drunkCount = filteredData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -124,45 +124,42 @@ export default function App() {
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [filteredData]);
 
-  // --- New: Trend Chart Logic (Independent Filter) ---
+  // --- NEW: Daily Trend Chart (Stacked Bar by Date & Type) ---
   const trendChartConfig = useMemo(() => {
-    // 1. Filter Raw Data by Trend Date Range ONLY (ignore other filters)
+    // 1. Filter Raw Data by Date Range ONLY
     const trendFiltered = rawData.filter(item => {
         return item.date >= trendStart && item.date <= trendEnd;
     });
 
-    // 2. Group by Date
-    const groupedByDate = {};
-    // Create skeleton dates to fill gaps
+    // 2. Generate Date Labels (All days in range)
+    const labels = [];
     let curr = new Date(trendStart);
     const end = new Date(trendEnd);
     while (curr <= end) {
-        groupedByDate[getThaiDateStr(curr)] = 0;
+        labels.push(getThaiDateStr(curr));
         curr.setDate(curr.getDate() + 1);
     }
 
-    // Count events
-    trendFiltered.forEach(item => {
-        if (groupedByDate[item.date] !== undefined) {
-            groupedByDate[item.date]++;
-        }
+    // 3. Define Categories for Stacking
+    // ใช้ Category หลักๆ เพื่อไม่ให้รกเกินไป
+    const categories = ['อุบัติเหตุใหญ่', 'อุบัติเหตุทั่วไป', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
+
+    // 4. Build Datasets
+    const datasets = categories.map(cat => {
+        return {
+            label: cat,
+            data: labels.map(date => {
+                // Count events matching Date AND Category
+                return trendFiltered.filter(item => item.date === date && item.category === cat).length;
+            }),
+            backgroundColor: CATEGORY_COLORS[cat] || '#94a3b8',
+            stack: 'stack1', // stack เดียวกันเพื่อให้ซ้อนกัน
+        };
     });
 
-    const labels = Object.keys(groupedByDate).sort();
-    const data = labels.map(date => groupedByDate[date]);
-
     return {
-        labels: labels.map(l => l.split('-').slice(1).join('/')), // Show MM/DD
-        datasets: [{
-            label: 'จำนวนเหตุการณ์รวม',
-            data: data,
-            borderColor: '#FBBF24', // สีเหลือง
-            backgroundColor: 'rgba(251, 191, 36, 0.2)',
-            tension: 0.3,
-            fill: true,
-            pointBackgroundColor: '#fff',
-            pointBorderWidth: 2
-        }]
+        labels: labels.map(d => d.split('-').slice(1).join('/')), // Show MM/DD
+        datasets: datasets
     };
   }, [rawData, trendStart, trendEnd]);
 
@@ -190,7 +187,7 @@ export default function App() {
       {/* Control Panel */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
-            {/* ... Filters เดิม ... */}
+            {/* Same Inputs ... */}
             <div className="col-span-2 md:col-span-1">
               <label className="text-[10px] text-yellow-400 font-bold mb-1 block uppercase tracking-wider"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
               <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded outline-none" value={dateRangeOption} onChange={e => setDateRangeOption(e.target.value)}>
@@ -205,16 +202,17 @@ export default function App() {
         </div>
       )}
 
-      {/* KPI Cards */}
+      {/* KPI Cards - Reordered */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <KPI_Card title="เหตุการณ์ทั้งหมด" value={filteredData.length} subtext="ตามตัวกรองปัจจุบัน" icon={ListChecks} accentColor="bg-slate-200" />
-        <KPI_Card title="เปิดช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="ยอดเปิด (ครั้ง)" icon={ArrowRightCircle} accentColor="bg-green-500" />
         <KPI_Card title="อุบัติเหตุ (กก.8)" value={filteredData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="เฉพาะพื้นที่ กก.8" icon={CarFront} accentColor="bg-red-500" />
         <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา" icon={Wine} accentColor="bg-purple-500" />
+        {/* ย้ายมาอยู่คู่กันตรงนี้ */}
+        <KPI_Card title="เปิดช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="ยอดเปิด (ครั้ง)" icon={ArrowRightCircle} accentColor="bg-green-500" />
         <KPI_Card title="ปิดช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
 
-      {/* Map & Stacked Bar */}
+      {/* Map & Stacked Bar (Division) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-[450px]">
          <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
@@ -242,31 +240,34 @@ export default function App() {
          </div>
       </div>
 
-      {/* NEW SECTION: Daily Trend Analysis */}
+      {/* NEW: Daily Trend (Stacked Bar) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <TrendingUp size={16} className="text-green-400"/> เปรียบเทียบเหตุการณ์ในแต่ละวัน
+                    <TrendingUp size={16} className="text-green-400"/> เปรียบเทียบประเภทเหตุการณ์ในแต่ละวัน
                 </h3>
                 {/* Independent Date Filter */}
                 <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลาเปรียบเทียบ:</span>
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span>
                     <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} />
                     <span className="text-slate-500 text-xs">-</span>
                     <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} />
                 </div>
             </div>
-            <div className="h-[200px] w-full relative">
-                 <Line 
+            <div className="h-[240px] w-full relative">
+                 <Bar 
                     data={trendChartConfig} 
                     options={{
                         responsive: true,
                         maintainAspectRatio: false,
-                        plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+                        plugins: { 
+                            legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, 
+                            tooltip: { mode: 'index', intersect: false } 
+                        },
                         scales: {
-                            x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8', maxRotation: 0 } },
-                            y: { grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b', stepSize: 1 } }
+                            x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } },
+                            y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } }
                         }
                     }}
                  />
