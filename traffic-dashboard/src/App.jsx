@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react'; // เพิ่ม useCallback
 import { 
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp 
+  TrendingUp, MousePointerClick // เพิ่ม icon
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 
-// Update CATEGORY_COLORS to match new merged category
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES } from './constants/config';
-// Define colors locally or import
+
+// Define Colors
 const CATEGORY_COLORS = {
-  'อุบัติเหตุ': '#EF4444',     // แดง
+  'อุบัติเหตุ': '#EF4444',     
   'จับกุม': '#A855F7',
   'เมาแล้วขับ': '#D946EF',
   'ว.43': '#3B82F6',
@@ -90,7 +90,7 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // --- 1. Filtered Data for LOG (แสดงทั้งหมด ตาม UI Filter) ---
+  // --- LOG Data ---
   const logData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -103,18 +103,17 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // --- 2. Filtered Data for VISUALS (Map/Chart/KPI) ---
-  // กฎ: ถ้าเป็น "อุบัติเหตุ" ให้แสดงเฉพาะ "กก.8"
+  // --- Visual Data (Accident = KK.8) ---
   const visualData = useMemo(() => {
     return logData.filter(item => {
         if (item.category === 'อุบัติเหตุ') {
-            return item.div === '8'; // กรองเฉพาะ กก.8 สำหรับกราฟและแผนที่
+            return item.div === '8'; 
         }
-        return true; // ประเภทอื่นแสดงตามปกติ
+        return true; 
     });
   }, [logData]);
 
-  // --- Map Data (From Visual Data) ---
+  // --- Map Data ---
   const mapData = useMemo(() => {
     const sortedLog = [...visualData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
@@ -131,13 +130,14 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
-  // --- Stats (From Visual Data) ---
+  // --- Stats & INTERACTIVE CHART Logic ---
   const stats = useMemo(() => {
     const drunkCount = visualData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
-    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
-    // Update categories to match new merged name
-    const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     
+    // Divisions Array (สำคัญ: ต้องเรียงตามลำดับเดียวกับ Label ในกราฟ)
+    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    
+    const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = mainCats.map(cat => ({
         label: cat,
         data: divisions.map(div => visualData.filter(d => d.div === div && d.category === cat).length),
@@ -147,12 +147,29 @@ export default function App() {
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData]);
 
-  // --- Trend Chart (Uses specific trend dates) ---
+  // --- CLICK HANDLER สำหรับกราฟ ---
+  const handleChartClick = useCallback((event, elements) => {
+    if (!elements || elements.length === 0) return;
+
+    // หา Index ของแท่งที่กด
+    const dataIndex = elements[0].index;
+    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    const clickedDiv = divisions[dataIndex];
+
+    // Toggle Logic: ถ้ากดตัวเดิม ให้ยกเลิกการกรอง, ถ้ากดตัวใหม่ ให้กรองตัวนั้น
+    if (filterDiv === clickedDiv) {
+        setFilterDiv(''); // ยกเลิก
+        setFilterSt('');
+    } else {
+        setFilterDiv(clickedDiv); // เลือก
+        setFilterSt(''); // Reset สถานีเมื่อเปลี่ยน กก.
+    }
+  }, [filterDiv]);
+
+  // --- Trend Chart ---
   const trendChartConfig = useMemo(() => {
-    // กรองวันที่สำหรับกราฟ Trend
     const trendFiltered = rawData.filter(item => {
         const inDate = item.date >= trendStart && item.date <= trendEnd;
-        // **Apply same visual rule:** If Accident -> must be Div 8
         const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
         return inDate && visualRule;
     });
@@ -164,7 +181,6 @@ export default function App() {
         labels.push(getThaiDateStr(curr));
         curr.setDate(curr.getDate() + 1);
     }
-
     const categories = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = categories.map(cat => {
         return {
@@ -174,11 +190,7 @@ export default function App() {
             stack: 'stack1',
         };
     });
-
-    return {
-        labels: labels.map(d => d.split('-').slice(1).join('/')),
-        datasets: datasets
-    };
+    return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
   if (loading) return <SystemLoader />;
@@ -213,7 +225,6 @@ export default function App() {
             </div>
             <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุก กก.</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
             <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
-            {/* Update options in dropdown */}
             <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="ประเภทเหตุการณ์" options={['อุบัติเหตุ', 'จับกุม', 'ว.43', 'ช่องทางพิเศษ', 'จราจรติดขัด']} selected={selectedCategories} onChange={setSelectedCategories} /></div>
             <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
         </div>
@@ -241,13 +252,25 @@ export default function App() {
 
          <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col">
              <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center">
-                <span>สถิติแยกตาม กก.</span> <ShieldAlert size={16} className="text-slate-400"/>
+                <span>สถิติแยกตาม กก.</span> 
+                {/* Visual Hint */}
+                <div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded">
+                   <MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง
+                </div>
              </h3>
              <div className="flex-1 w-full relative">
                 <Bar 
                   data={stats.divChartConfig} 
                   options={{ 
-                    responsive: true, maintainAspectRatio: false, indexAxis: 'y', 
+                    responsive: true, 
+                    maintainAspectRatio: false, 
+                    indexAxis: 'y', 
+                    // --- CLICK HANDLER ---
+                    onClick: handleChartClick,
+                    onHover: (event, chartElement) => {
+                       // เปลี่ยน Cursor เป็นรูปมือเมื่อชี้ที่กราฟ
+                       event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                    },
                     plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, 
                     scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } 
                   }} 
@@ -283,7 +306,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Log List (แสดง logData แทน visualData เพื่อให้เห็นข้อมูลทุก กก.) */}
+      {/* Log List */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด (Log)</h3>
