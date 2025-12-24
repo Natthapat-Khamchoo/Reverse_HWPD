@@ -3,25 +3,30 @@ import { formatTime24 } from './helpers';
 
 export const processSheetData = (rawData, sourceFormat) => {
   const processed = rawData.map((row, index) => {
+    // ... (ส่วน getVal และการดึง date/time เหมือนเดิม) ...
+    
+    // --- COPY ส่วน getVal และ date logic เดิมมาใส่ตรงนี้ ---
     const getVal = (possibleKeys) => {
-      const keys = Object.keys(row);
-      for (const pk of possibleKeys) {
-        const foundKey = keys.find(k => k.includes(pk.toLowerCase()));
-        if (foundKey && row[foundKey]) return row[foundKey].trim();
-      }
-      return '';
+        const keys = Object.keys(row);
+        for (const pk of possibleKeys) {
+            const foundKey = keys.find(k => k.includes(pk.toLowerCase()));
+            if (foundKey && row[foundKey]) return row[foundKey].trim();
+        }
+        return '';
     };
 
+    // ... (Date/Time parsing logic เดิม) ...
     const timeRaw = getVal(['เวลา', 'time']); 
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     
+    // Validate Basic Data
     const checkStr = (timestampRaw + dateRaw);
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
     let dateStr = '';
     let timeStr = '00:00';
-
+    // ... (Logic แปลงวันที่/เวลา เหมือนเดิม) ...
     if (dateRaw && dateRaw.includes('/')) {
         const [d, m, y] = dateRaw.split('/');
         let year = parseInt(y);
@@ -41,9 +46,9 @@ export const processSheetData = (rawData, sourceFormat) => {
         const parts = timestampRaw.split(' ');
         if (parts.length >= 2) { const tPart = parts.slice(1).join(' '); timeStr = formatTime24(tPart); }
     }
-
     if (!dateStr || dateStr.length < 8) return null;
 
+    // ... (Location parsing logic เหมือนเดิม) ...
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
@@ -64,11 +69,15 @@ export const processSheetData = (rawData, sourceFormat) => {
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
+    // --- แก้ไขจุดนี้: ห้าม Random พิกัด ---
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
-    if (isNaN(lat) || lat === 0) lat = 13.75 + (Math.random() - 0.5) * 2;
-    if (isNaN(lng) || lng === 0) lng = 100.50 + (Math.random() - 0.5) * 2;
+    
+    // ถ้าไม่มีพิกัด ให้เป็น null (MapViewer จะต้องกรองออกเอง)
+    if (isNaN(lat) || lat === 0) lat = null;
+    if (isNaN(lng) || lng === 0) lng = null;
 
+    // ... (Category logic เหมือนเดิม) ...
     let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
 
     if (sourceFormat === 'SAFETY') {
