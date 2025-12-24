@@ -1,11 +1,8 @@
-// src/utils/dataProcessor.js
 import { formatTime24 } from './helpers';
 
 export const processSheetData = (rawData, sourceFormat) => {
   const processed = rawData.map((row, index) => {
-    // ... (ส่วน getVal และการดึง date/time เหมือนเดิม) ...
-    
-    // --- COPY ส่วน getVal และ date logic เดิมมาใส่ตรงนี้ ---
+    // --- Helper ดึงค่าจาก Key ต่างๆ ---
     const getVal = (possibleKeys) => {
         const keys = Object.keys(row);
         for (const pk of possibleKeys) {
@@ -15,40 +12,60 @@ export const processSheetData = (rawData, sourceFormat) => {
         return '';
     };
 
-    // ... (Date/Time parsing logic เดิม) ...
+    // --- 1. ตรวจสอบข้อมูลเบื้องต้น ---
     const timeRaw = getVal(['เวลา', 'time']); 
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     
-    // Validate Basic Data
+    // ถ้าไม่มีข้อมูลวันที่เลย ให้ข้าม
     const checkStr = (timestampRaw + dateRaw);
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
+    // --- 2. จัดการวันที่ (Date Parsing) ---
     let dateStr = '';
     let timeStr = '00:00';
-    // ... (Logic แปลงวันที่/เวลา เหมือนเดิม) ...
-    if (dateRaw && dateRaw.includes('/')) {
-        const [d, m, y] = dateRaw.split('/');
-        let year = parseInt(y);
-        if (year > 2400) year -= 543;
-        dateStr = `${year}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
+
+    // ฟังก์ชันแปลงวันที่ DD/MM/YYYY -> YYYY-MM-DD
+    const parseDateParts = (str) => {
+        if (!str) return '';
+        const parts = str.split(/[\/\-\s]/); // แยกด้วย / หรือ - หรือ space
+        if (parts.length >= 3) {
+            let d = parts[0];
+            let m = parts[1];
+            let y = parts[2];
+            
+            // กรณีเจอ format ผิดปกติ เช่น เอาปีขึ้นก่อน (2025/12/19)
+            if (d.length === 4) { y = d; d = parts[2]; } 
+            
+            let year = parseInt(y);
+            if (year > 2400) year -= 543; // แปลง พ.ศ. เป็น ค.ศ.
+            
+            // Validation: เดือนต้องไม่เกิน 12, วันต้องไม่เกิน 31
+            if (parseInt(m) > 12 || parseInt(d) > 31) return ''; 
+
+            return `${year}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
+        }
+        return '';
+    };
+
+    if (dateRaw) {
+        dateStr = parseDateParts(dateRaw);
     } else if (timestampRaw) {
         const parts = timestampRaw.split(' ');
-        if (parts[0].includes('/')) {
-            const [d, m, y] = parts[0].split('/');
-            let year = parseInt(y); if (year > 2400) year -= 543;
-            dateStr = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-        } else { dateStr = parts[0]; }
+        dateStr = parseDateParts(parts[0]);
     }
 
+    // ถ้าแปลงวันที่ไม่ได้ หรือได้วันที่ไม่สมบูรณ์ -> ตัดทิ้ง (Garbage Date)
+    if (!dateStr || dateStr.length < 10) return null;
+
+    // --- 3. จัดการเวลา ---
     if (timeRaw) { timeStr = formatTime24(timeRaw); } 
     else if (timestampRaw) {
         const parts = timestampRaw.split(' ');
         if (parts.length >= 2) { const tPart = parts.slice(1).join(' '); timeStr = formatTime24(tPart); }
     }
-    if (!dateStr || dateStr.length < 8) return null;
 
-    // ... (Location parsing logic เหมือนเดิม) ...
+    // --- 4. จัดการสถานที่ (Location Parsing) ---
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/); if (divMatch) div = divMatch[1];
@@ -69,15 +86,19 @@ export const processSheetData = (rawData, sourceFormat) => {
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
 
-    // --- แก้ไขจุดนี้: ห้าม Random พิกัด ---
+    // *** กรองข้อมูลขยะ (Garbage Data Filter) ***
+    // ถ้าไม่มีเลขถนน AND ไม่มีเลข กม. -> ตัดทิ้ง
+    if ((!road || road === '-' || road === '') && (!km || km === '-' || km === '')) {
+        return null; 
+    }
+
+    // --- 5. พิกัด (Lat/Lng) ---
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
-    
-    // ถ้าไม่มีพิกัด ให้เป็น null (MapViewer จะต้องกรองออกเอง)
     if (isNaN(lat) || lat === 0) lat = null;
     if (isNaN(lng) || lng === 0) lng = null;
 
-    // ... (Category logic เหมือนเดิม) ...
+    // --- 6. ประเภทเหตุการณ์ (Category) ---
     let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
 
     if (sourceFormat === 'SAFETY') {
@@ -123,5 +144,6 @@ export const processSheetData = (rawData, sourceFormat) => {
       timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
     };
   });
+  
   return processed.filter(item => item !== null);
 };
