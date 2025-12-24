@@ -7,7 +7,17 @@ import { DIVISION_COLORS, CATEGORY_COLORS } from '../constants/config';
 const MapViewer = ({ data }) => {
   return (
     <MapContainer center={[13.75, 100.5]} zoom={6} style={{ height: '100%', width: '100%', background: '#0f172a' }}>
-      <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" attribution='&copy; CARTO' />
+      
+      {/* --- เริ่มต้นส่วนแก้ไข: Google Maps Traffic Layer --- */}
+      <TileLayer
+        // lyrs=m (Map), traffic (Traffic Layer)
+        url="https://{s}.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}"
+        maxZoom={20}
+        subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
+        attribution='&copy; Google Maps'
+      />
+      {/* --- สิ้นสุดส่วนแก้ไข --- */}
+
       {data.map(item => (
         <CircleMarker 
           key={item.id} 
