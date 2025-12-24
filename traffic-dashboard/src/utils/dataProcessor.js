@@ -12,11 +12,13 @@ export const processSheetData = (rawData, sourceFormat) => {
         return '';
     };
 
-    // 1. Date & Time Parsing (เหมือนเดิม)
+    // 1. Date & Time Parsing
     const timeRaw = getVal(['เวลา', 'time']); 
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const checkStr = (timestampRaw + dateRaw);
+    
+    // Check เบื้องต้นว่าใช่แถวข้อมูลหรือไม่
     if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
 
     let dateStr = '';
@@ -45,9 +47,10 @@ export const processSheetData = (rawData, sourceFormat) => {
         if (parts.length >= 2) timeStr = formatTime24(parts.slice(1).join(' '));
     }
 
-    // 2. Division & Location (เหมือนเดิม)
+    // 2. Division & Location
     let div = '1', st = '1';
     const unitRaw = getVal(['หน่วยงาน', 'unit']);
+    // Logic จับ Division: รองรับ "กก.8", "ทล.1 กก.2", หรือลงท้ายด้วยตัวเลข
     const divMatch = unitRaw.match(/กก\.?\s*(\d+)/) || unitRaw.match(/\/(\d+)/) || unitRaw.match(/(\d+)$/); 
     if (divMatch) div = divMatch[1];
     
@@ -69,44 +72,48 @@ export const processSheetData = (rawData, sourceFormat) => {
         else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
     }
     
+    // กรองข้อมูลขยะ: ถ้าไม่มีถนน และ ไม่มี กม. ให้ตัดทิ้ง
     if ((!road || road === '-' || road === '') && (!km || km === '-' || km === '')) return null;
 
     let lat = parseFloat(getVal(['latitude', 'lat']));
     let lng = parseFloat(getVal(['longitude', 'lng']));
     if (isNaN(lat) || lat === 0) { lat = null; lng = null; }
 
-    // 3. Category Logic (ปรับปรุงใหม่: รวมอุบัติเหตุ)
+    // 3. Category Logic
     let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
 
     if (sourceFormat === 'SAFETY') {
+        // --- LOGIC ใหม่: เหมาว่าเป็นอุบัติเหตุทั้งหมด ---
+        mainCategory = 'อุบัติเหตุ';
+        statusColor = 'bg-red-600';
+
+        // พยายามดึงรายละเอียดมาแสดง (ถ้ามี)
         const major = getVal(['เหตุน่าสนใจ', 'major']);
         const general = getVal(['เหตุทั่วไป', 'general']);
         
-        // เช็คว่ามีข้อมูลไหม
-        const hasData = (major && major.trim() !== '-' && major.trim() !== '') || (general && general.trim() !== '-' && general.trim() !== '');
-
-        if (hasData) {
-            // *** รวมเป็น "อุบัติเหตุ" อย่างเดียว ***
-            mainCategory = 'อุบัติเหตุ'; 
-            // เอา Text มาต่อกัน หรือเลือกอันที่มีข้อมูล
-            detailText = (major && major.length > 1) ? major : general;
-            statusColor = 'bg-red-600'; // สีแดงเดียว
+        if (major && major.length > 1 && major !== '-') {
+            detailText = major;
+        } else if (general && general.length > 1 && general !== '-') {
+            detailText = general;
         } else {
-            return null; // ถ้าไม่มีรายละเอียด ตัดทิ้ง
+            detailText = 'อุบัติเหตุ (ไม่ระบุรายละเอียด)';
         }
 
     } else if (sourceFormat === 'ENFORCE') {
         const arrest = getVal(['ผลการจับกุม', 'จับกุม']);
         const checkpoint = getVal(['จุดตรวจ ว.43', 'ว.43']);
+        
         if (arrest && arrest !== '-' && arrest.length > 1) {
             mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
         } else {
             mainCategory = 'ว.43'; detailText = checkpoint || '-'; statusColor = 'bg-indigo-500';
         }
+
     } else if (sourceFormat === 'TRAFFIC') {
         const specialLane = getVal(['ช่องทางพิเศษ']);
         const traffic = getVal(['สภาพจราจร']);
         const tailback = getVal(['ท้ายแถว']);
+        
         if (specialLane && specialLane !== '-' && specialLane.length > 1) {
              if (specialLane.includes('เปิด') || specialLane.includes('เริ่ม')) mainCategory = 'ช่องทางพิเศษ'; 
              else if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก')) mainCategory = 'ปิดช่องทางพิเศษ'; 
