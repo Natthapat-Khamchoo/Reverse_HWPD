@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   RotateCcw, ListChecks, AlertTriangle, Monitor, Calendar, Siren, 
-  CarFront, Route, ShieldAlert, StopCircle, Activity, AlertOctagon, 
-  CheckCircle2, ArrowRightCircle, Wine // เพิ่ม icon Wine สำหรับเมาแล้วขับ
+  CarFront, Route, ShieldAlert, StopCircle, Activity, 
+  CheckCircle2, ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 
-// Imports
+// Imports (ตรวจสอบ path ให้ตรงกับเครื่องคุณ)
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES, DIVISION_COLORS, CATEGORY_COLORS } from './constants/config';
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
@@ -28,6 +28,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   
+  // UI States
+  const [showFilters, setShowFilters] = useState(true); // State สำหรับซ่อน/แสดง Filter
+
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(getThaiDateStr());
@@ -67,14 +70,14 @@ export default function App() {
     fetchData();
   }, []);
 
-  // 3. Unique Lists for Dropdowns
+  // 3. Unique Lists
   const uniqueRoads = useMemo(() => {
     return Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort();
   }, [rawData]);
 
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // 4. Main Data Logic (All Filtered Data)
+  // 4. Main Data Logic (Logs ทั้งหมดตามช่วงเวลา)
   const filteredData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -85,32 +88,50 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 5. Visualization Data Calculation
-  const stats = useMemo(() => {
-    // 5.1 Drunk Driving Count (Check keyword 'เมา' in detail)
-    const drunkCount = filteredData.filter(d => 
-        d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')
-    ).length;
-
-    // 5.2 Division Chart Data
-    const divCounts = { "1":0, "2":0, "3":0, "4":0, "5":0, "6":0, "7":0, "8":0 };
-    filteredData.forEach(d => {
-        if (divCounts[d.div] !== undefined) divCounts[d.div]++;
+  // 5. Active Visual Data (สำหรับ Map เท่านั้น - คำนวณ Open/Close)
+  const activeVisualData = useMemo(() => {
+    // ต้อง Sort เก่าไปใหม่ เพื่อไล่สถานะเปิด/ปิด
+    const sortedLog = [...filteredData].sort((a, b) => a.timestamp - b.timestamp);
+    const activeStates = new Map(); 
+    const otherEvents = []; 
+    
+    sortedLog.forEach(row => {
+        const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+        
+        // Logic การคัดกรองขึ้น Map
+        if (row.category === 'จราจรติดขัด') { activeStates.set(locKey, row); } 
+        else if (row.category === 'จราจรปกติ') { activeStates.delete(locKey); } 
+        else if (row.category === 'ช่องทางพิเศษ') { activeStates.set(`LANE-${locKey}`, row); } 
+        else if (row.category === 'ปิดช่องทางพิเศษ') { activeStates.delete(`LANE-${locKey}`); } // ลบออกจาก Map เมื่อปิด
+        else { otherEvents.push(row); }
     });
+    return [...otherEvents, ...activeStates.values()];
+  }, [filteredData]);
+
+  // 6. Statistics & Chart Configuration
+  const stats = useMemo(() => {
+    // 6.1 Drunk Driving
+    const drunkCount = filteredData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
+
+    // 6.2 Stacked Bar Chart Data (Division x Category)
+    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    // เลือก Category หลักๆ ที่จะแสดงในกราฟ
+    const mainCats = ['อุบัติเหตุใหญ่', 'อุบัติเหตุทั่วไป', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
+    
+    const datasets = mainCats.map(cat => ({
+        label: cat,
+        data: divisions.map(div => filteredData.filter(d => d.div === div && d.category === cat).length),
+        backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
+        stack: 'Stack 0', // ให้ซ้อนกัน
+    }));
 
     const divChartConfig = {
-        labels: Object.keys(divCounts).map(k => `กก.${k}`),
-        datasets: [{
-            label: 'จำนวนเหตุการณ์',
-            data: Object.values(divCounts),
-            backgroundColor: Object.keys(divCounts).map(k => DIVISION_COLORS[k] || '#cbd5e1'),
-            borderRadius: 4,
-        }]
+        labels: divisions.map(d => `กก.${d}`),
+        datasets: datasets
     };
 
     return { drunkCount, divChartConfig };
   }, [filteredData]);
-
 
   // --------------------------------------------------------------------------
   // RENDER
@@ -127,57 +148,56 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-3">
+             <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
+                <Filter size={14} /> {showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+             </button>
              <span className="text-[10px] text-green-500 font-mono flex items-center gap-1"><Activity size={10} className="animate-pulse"/> Live</span>
              <button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /> รีเฟรช</button>
         </div>
       </div>
 
-      {/* Control Panel */}
-      <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md">
-          <div className="col-span-2 md:col-span-1">
-             <label className="text-[10px] text-yellow-400 font-bold mb-1 block uppercase tracking-wider"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
-             <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded outline-none" value={dateRangeOption} onChange={e => setDateRangeOption(e.target.value)}>
-               <option value="today">วันนี้</option><option value="yesterday">เมื่อวาน</option><option value="last7">7 วันย้อนหลัง</option><option value="all">ทั้งหมด</option><option value="custom">กำหนดเอง</option>
-             </select>
-             {dateRangeOption === 'custom' && (<div className="flex gap-1 mt-1"><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customStart} onChange={e => setCustomStart(e.target.value)} /><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>)}
-          </div>
-          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุก กก.</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
-          <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
-          <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="ประเภทเหตุการณ์" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
-          <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
-      </div>
+      {/* Control Panel (Collapsible) */}
+      {showFilters && (
+        <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
+            <div className="col-span-2 md:col-span-1">
+              <label className="text-[10px] text-yellow-400 font-bold mb-1 block uppercase tracking-wider"><Calendar size={10} className="inline mr-1"/> ช่วงเวลา</label>
+              <select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded outline-none" value={dateRangeOption} onChange={e => setDateRangeOption(e.target.value)}>
+                <option value="today">วันนี้</option><option value="yesterday">เมื่อวาน</option><option value="last7">7 วันย้อนหลัง</option><option value="all">ทั้งหมด</option><option value="custom">กำหนดเอง</option>
+              </select>
+              {dateRangeOption === 'custom' && (<div className="flex gap-1 mt-1"><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customStart} onChange={e => setCustomStart(e.target.value)} /><input type="date" className="w-1/2 bg-slate-900 border border-slate-600 text-white text-[10px] p-1 rounded" value={customEnd} onChange={e => setCustomEnd(e.target.value)} /></div>)}
+            </div>
+            <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">กองกำกับการ</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทุก กก.</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
+            <div className="col-span-1"><label className="text-[10px] text-slate-400 font-bold mb-1 block">สถานี</label><select className="w-full bg-slate-900 border border-slate-600 text-white text-xs p-2 rounded" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทุกสถานี</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
+            <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="ประเภทเหตุการณ์" options={EVENT_CATEGORIES} selected={selectedCategories} onChange={setSelectedCategories} /></div>
+            <div className="col-span-2 md:col-span-1.5 relative"><MultiSelectDropdown label="เส้นทาง" options={uniqueRoads} selected={selectedRoads} onChange={setSelectedRoads} /></div>
+        </div>
+      )}
 
-      {/* KPI Stats (Updated) */}
+      {/* KPI Stats */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-        {/* 1. เหตุการณ์ทั้งหมด (แก้จากคงค้าง) */}
         <KPI_Card title="เหตุการณ์ทั้งหมด" value={filteredData.length} subtext="ตามช่วงเวลา" icon={ListChecks} accentColor="bg-slate-200" />
         
-        {/* 2. ช่องทางพิเศษ */}
-        <KPI_Card title="ช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="เปิดใช้งาน" icon={ArrowRightCircle} accentColor="bg-green-500" />
+        {/* ใช้ filteredData เพื่อนับยอดรวมที่เปิด (ไม่สนว่าปิดหรือยัง) */}
+        <KPI_Card title="ช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="ยอดเปิดใช้ (ครั้ง)" icon={ArrowRightCircle} accentColor="bg-green-500" />
         
-        {/* 3. อุบัติเหตุ */}
         <KPI_Card title="อุบัติเหตุ" value={filteredData.filter(d => d.category.includes('อุบัติเหตุ')).length} subtext="รวม ใหญ่+ทั่วไป" icon={CarFront} accentColor="bg-red-500" />
-        
-        {/* 4. จับกุมเมาแล้วขับ (Logic ใหม่) */}
         <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา" icon={Wine} accentColor="bg-purple-500" />
-        
-        {/* 5. ปิดช่องทางพิเศษ (เดิม) */}
-        <KPI_Card title="ปิดช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยกเลิกแล้ว" icon={StopCircle} accentColor="bg-slate-600" />
+        <KPI_Card title="ปิดช่องทางพิเศษ" value={filteredData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
 
-      {/* Map (Top Section) */}
-      <div className="mb-4 bg-slate-800 rounded-lg border border-slate-700 h-[400px] relative overflow-hidden shadow-md">
-         <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-2 py-1 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-2 shadow-sm"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> แสดงผลตามตัวกรอง</div>
-         <MapViewer data={filteredData} />
+      {/* Map (Reduced Height & using activeVisualData for logic) */}
+      <div className="mb-4 bg-slate-800 rounded-lg border border-slate-700 h-[280px] relative overflow-hidden shadow-md transition-all">
+         <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-2 py-1 rounded border border-slate-600 text-[10px] text-green-400 font-mono flex items-center gap-2 shadow-sm"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span> แสดงผลเฉพาะเหตุการณ์ที่ยัง Active</div>
+         <MapViewer data={activeVisualData} />
       </div>
 
-      {/* Split View: Chart (Left) | Logs (Right) */}
+      {/* Split View */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[500px]">
         
-        {/* LEFT: Division Chart */}
+        {/* LEFT: Stacked Bar Chart */}
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col h-full lg:col-span-1">
              <h3 className="text-sm font-bold text-white mb-4 pb-2 border-b border-slate-600 flex justify-between items-center">
-                <span>เหตุการณ์ในแต่ละ กก.</span> <ShieldAlert size={16}/>
+                <span>แยกประเภทตาม กก.</span> <ShieldAlert size={16}/>
              </h3>
              <div className="flex-1 w-full relative">
                 <Bar 
@@ -186,17 +206,20 @@ export default function App() {
                     responsive: true, 
                     maintainAspectRatio: false, 
                     indexAxis: 'y', // แนวนอน
-                    plugins: { legend: { display: false } }, 
+                    plugins: { 
+                      legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 10 }, color: '#94a3b8' } },
+                      tooltip: { mode: 'index', intersect: false }
+                    }, 
                     scales: { 
-                        x: { grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } }, 
-                        y: { grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } 
+                        x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#94a3b8' } }, 
+                        y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } 
                     } 
                   }} 
                 />
              </div>
         </div>
 
-        {/* RIGHT: Log List (Moved here) */}
+        {/* RIGHT: Log List */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-full lg:col-span-2 overflow-hidden">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด</h3>
@@ -215,7 +238,7 @@ export default function App() {
                   </thead>
                   <tbody className="divide-y divide-slate-700/50">
                     {filteredData.length > 0 ? filteredData.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
+                      <tr key={idx} className={`hover:bg-slate-700/30 transition-colors ${item.category.includes('ปิด') || item.category === 'จราจรปกติ' ? 'opacity-50 grayscale' : ''}`}>
                         <td className="px-4 py-3 align-top whitespace-nowrap">
                             <div className="text-yellow-400 font-mono font-bold">{item.time} น.</div>
                             <div className="text-[10px] text-slate-500">{item.date}</div>
@@ -233,7 +256,6 @@ export default function App() {
                             </span>
                         </td>
                         <td className="px-4 py-3 align-top text-slate-300 relative">
-                             {/* Indicator Line */}
                             <div className={`absolute left-0 top-3 bottom-3 w-0.5 rounded ${
                                 item.reportFormat === 'SAFETY' ? 'bg-red-500' : 
                                 item.reportFormat === 'ENFORCE' ? 'bg-purple-500' : 'bg-green-500'
