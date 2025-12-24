@@ -240,8 +240,8 @@ export default function App() {
       </div>
 
       {/* Map & Chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-[450px]">
-         <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-auto lg:h-[450px]">
+         <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col h-[350px] lg:h-full">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
                 <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
             </div>
@@ -250,10 +250,9 @@ export default function App() {
             </div>
          </div>
 
-         <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col">
+         <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col h-[300px] lg:h-full">
              <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center">
                 <span>สถิติแยกตาม กก.</span> 
-                {/* Visual Hint */}
                 <div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded">
                    <MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง
                 </div>
@@ -265,10 +264,8 @@ export default function App() {
                     responsive: true, 
                     maintainAspectRatio: false, 
                     indexAxis: 'y', 
-                    // --- CLICK HANDLER ---
                     onClick: handleChartClick,
                     onHover: (event, chartElement) => {
-                       // เปลี่ยน Cursor เป็นรูปมือเมื่อชี้ที่กราฟ
                        event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
                     },
                     plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, 
