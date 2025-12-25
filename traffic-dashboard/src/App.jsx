@@ -238,7 +238,7 @@ export default function App() {
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const todayFilterStr = getThaiDateStr(now);
     
-    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า) ดังนี้\n\n`;
+    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า/ขาออก) ดังนี้\n\n`;
 
     const regions = [
       {
