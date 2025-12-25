@@ -3,7 +3,7 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy 
+  TrendingUp, MousePointerClick, ClipboardCopy, Loader2 
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -12,7 +12,7 @@ import { Bar } from 'react-chartjs-2';
 
 // Config & Utils
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
-import { TRAFFIC_DATA } from './constants/traffic_nodes'; // ข้อมูลพิกัดทั่วประเทศ
+import { TRAFFIC_DATA } from './constants/traffic_nodes'; 
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
 
@@ -27,49 +27,40 @@ ChartJS.defaults.color = '#94a3b8';
 ChartJS.defaults.borderColor = '#334155'; 
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
-// --- CONFIGURATION ---
-// ใส่ Key สำหรับแสดงแผนที่ (Map Viewer)
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// ฟังก์ชันเช็คจราจร (แก้ไขใหม่: เรียกผ่าน Serverless Function /api/traffic เพื่อแก้ CORS)
+// --- 1. ปรับ Logic ความเร็วใหม่ (Tuning Speed Thresholds) ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
-  
-  // เรียก API หลังบ้านของเรา
   const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
     const res = await fetch(url);
     if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    const json = await res.json();
     
-    const json = await res.json(); // เปลี่ยนชื่อตัวแปรรับค่าเป็น json เพื่อความชัดเจน
-    
-    // 🔥 แก้ไข Logic การดึงค่าตรงนี้ครับ (Parse ให้ตรงกับ JSON ของ Longdo)
     if (json && json.data && json.data.length > 0) {
-      const route = json.data[0]; // ดึงข้อมูลเส้นทางแรก
+      const route = json.data[0];
+      const distanceKm = route.distance / 1000;
+      const timeHour = route.interval / 3600;
       
-      const distanceKm = route.distance / 1000; // แปลงเมตร เป็น กิโลเมตร
-      const timeHour = route.interval / 3600;   // แปลงวินาที เป็น ชั่วโมง (Longdo ใช้ interval)
-      
-      // ป้องกันการหารด้วย 0
-      if (timeHour <= 0) return "ตรวจสอบไม่ได้";
+      if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
-      const speed = distanceKm / timeHour; // คำนวณความเร็ว (km/h)
-      
-      // Console ดูค่าจริง (เผื่ออยาก Debug)
-      // console.log(`Speed: ${speed.toFixed(2)} km/h`);
+      const speed = distanceKm / timeHour; 
 
-      // เกณฑ์การวัดผล
-      if (speed >= 80) return "คล่องตัว";
-      if (speed >= 60) return "ปกติ";
-      if (speed >= 35) return "ชะลอตัว";
-      return "หนาแน่น/ติดขัด 🔴";
+      // --- เกณฑ์ใหม่ (สมจริงมากขึ้นสำหรับค่าเฉลี่ย) ---
+      // > 40 km/h = ไหลลื่น (เพราะเป็นค่าเฉลี่ยรวมไฟแดง/ด่าน)
+      if (speed >= 40) return { status: "คล่องตัว", code: 1 };
+      // 20-40 km/h = ชะลอตัว
+      if (speed >= 20) return { status: "ชะลอตัว", code: 2 };
+      // < 20 km/h = ติดขัดจริงจัง
+      return { status: "หนาแน่น/ติดขัด 🔴", code: 3 };
     }
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
   }
-  return "ตรวจสอบไม่ได้"; 
+  return { status: "ตรวจสอบไม่ได้", code: 0 }; 
 };
 
 export default function App() {
@@ -77,6 +68,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
+  
+  // State สำหรับ Loading ตอนกด Copy Report
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
@@ -125,7 +119,6 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // --- LOG Data ---
   const logData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -138,7 +131,6 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // --- Visual Data ---
   const visualData = useMemo(() => {
     return logData.filter(item => {
         if (item.category === 'อุบัติเหตุ') return item.div === '8'; 
@@ -146,7 +138,6 @@ export default function App() {
     });
   }, [logData]);
 
-  // --- Map Data ---
   const mapData = useMemo(() => {
     const sortedLog = [...visualData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
@@ -163,7 +154,6 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
-  // --- Stats ---
   const stats = useMemo(() => {
     const drunkCount = visualData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -186,7 +176,6 @@ export default function App() {
     else { setFilterDiv(clickedDiv); setFilterSt(''); }
   }, [filterDiv]);
 
-  // --- Trend Chart ---
   const trendChartConfig = useMemo(() => {
     const trendFiltered = rawData.filter(item => {
         const inDate = item.date >= trendStart && item.date <= trendEnd;
@@ -213,81 +202,101 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 SMART REPORT GENERATOR
+  // 🌟 NEW: GENERATE REPORT WITH OVERLAY & SUMMARY LOGIC
   // -----------------------------------------------------------------------
   const handleCopyReport = async () => {
-    document.body.style.cursor = 'wait';
-    const now = new Date();
-    const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-    const todayFilterStr = getThaiDateStr(now);
+    setIsGeneratingReport(true); // เปิด Loading Overlay
     
-    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
-
-    for (const region of TRAFFIC_DATA) {
-      report += `${region.region}\n`;
+    try {
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+      const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      const todayFilterStr = getThaiDateStr(now);
       
-      for (const road of region.roads) {
-        // 1. เช็ค Manual Log (Priority สูงสุด)
-        const manualIssues = rawData.filter(d => 
-            d.road === road.id && 
-            d.date === todayFilterStr &&
-            (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
-        );
+      let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
 
-        let finalStatus = "";
+      for (const region of TRAFFIC_DATA) {
+        report += `${region.region}\n`;
+        
+        for (const road of region.roads) {
+          // 1. เช็ค Manual Log (Priority 1)
+          const manualIssues = rawData.filter(d => 
+              d.road === road.id && 
+              d.date === todayFilterStr &&
+              (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
+          );
 
-        if (manualIssues.length > 0) {
-            // ใช้ข้อมูลจากเจ้าหน้าที่
-            finalStatus = manualIssues.map(i => {
-                const prefix = i.category === 'ช่องทางพิเศษ' ? 'เปิดช่องทางพิเศษ ' : '';
-                return `${prefix}${i.detail}`;
-            }).join(', ');
-        } else {
-            // 2. ใช้ API เช็ค (Smart Summary)
-            const segmentPromises = road.segments.map(async (seg) => {
-                const status = await getTrafficFromCoords(seg.start, seg.end);
-                return { label: seg.label, status: status };
-            });
+          let finalStatus = "";
 
-            const results = await Promise.all(segmentPromises);
+          if (manualIssues.length > 0) {
+              finalStatus = manualIssues.map(i => {
+                  const prefix = i.category === 'ช่องทางพิเศษ' ? 'เปิดช่องทางพิเศษ ' : '';
+                  return `${prefix}${i.detail}`;
+              }).join(', ');
+          } else {
+              // 2. ใช้ API เช็ค
+              const segmentPromises = road.segments.map(async (seg) => {
+                  const result = await getTrafficFromCoords(seg.start, seg.end);
+                  return { label: seg.label, ...result };
+              });
 
-            // หาช่วงที่มีปัญหา
-            const badSegments = results.filter(r => 
-                !r.status.includes("คล่องตัว") && 
-                !r.status.includes("ปกติ") &&
-                r.status !== "ตรวจสอบไม่ได้"
-            );
-            
-            const errorSegments = results.filter(r => r.status === "ตรวจสอบไม่ได้");
+              const results = await Promise.all(segmentPromises);
 
-            if (badSegments.length > 0) {
-                // มีรถติด -> แสดงเฉพาะช่วงที่ติด
-                finalStatus = badSegments.map(b => `${b.label} ${b.status}`).join(', ');
-                if(errorSegments.length > 0) finalStatus += ` (บางช่วงตรวจสอบไม่ได้)`;
-            } else if (results.every(r => r.status === "ตรวจสอบไม่ได้")) {
-                // พังหมด
-                finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
-            } else {
-                // เขียวหมด
-                finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
-            }
+              // --- LOGIC สรุปผลแบบใหม่ (Report by Exception) ---
+              // หาเฉพาะช่วงที่มีปัญหา (Code 2=ชะลอ, 3=ติดขัด)
+              const problematicSegments = results.filter(r => r.code >= 2);
+              const errorSegments = results.filter(r => r.code === 0);
+
+              if (problematicSegments.length > 0) {
+                  // ถ้ามีปัญหา ให้ List เฉพาะช่วงที่มีปัญหา
+                  // ตัวอย่าง: "ช่วงวังน้อย หนาแน่น/ติดขัด 🔴, ช่วงหินกอง ชะลอตัว"
+                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(', ');
+                  
+                  if (errorSegments.length > 0) {
+                      finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
+                  }
+              } else if (results.every(r => r.code === 0)) {
+                  finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
+              } else {
+                  // ถ้าไม่มี Code 2 หรือ 3 เลย แสดงว่าเขียวหมด
+                  finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+              }
+          }
+          report += `- ${road.name} : ${finalStatus}\n`;
         }
-        report += `- ${road.name} : ${finalStatus}\n`;
       }
-    }
 
-    document.body.style.cursor = 'default';
-    navigator.clipboard.writeText(report)
-        .then(() => alert("✅ คัดลอกรายงานเรียบร้อย"))
-        .catch(() => alert("❌ เกิดข้อผิดพลาด"));
+      await navigator.clipboard.writeText(report);
+      alert("✅ คัดลอกรายงานเรียบร้อย");
+
+    } catch (e) {
+      console.error(e);
+      alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
+    } finally {
+      setIsGeneratingReport(false); // ปิด Loading Overlay
+    }
   };
 
   if (loading) return <SystemLoader />;
   if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
 
   return (
-    <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200">
+    <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
+      
+      {/* --- LOADING OVERLAY (แสดงเฉพาะตอนกด Copy Report) --- */}
+      {isGeneratingReport && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
+           <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
+              <Loader2 size={48} className="text-yellow-400 animate-spin" />
+              <div className="text-center">
+                 <h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3>
+                 <p className="text-slate-400 text-sm">ระบบกำลังตรวจสอบสภาพจราจรทั่วประเทศ</p>
+                 <p className="text-slate-500 text-xs mt-2">(อาจใช้เวลา 5-10 วินาที)</p>
+              </div>
+           </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
@@ -295,8 +304,12 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-3">
-             <button onClick={handleCopyReport} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm">
-                <ClipboardCopy size={14} /> คัดลอกรายงาน
+             <button 
+                onClick={handleCopyReport} 
+                disabled={isGeneratingReport}
+                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+             >
+                <ClipboardCopy size={14} /> {isGeneratingReport ? 'กำลังสร้าง...' : 'คัดลอกรายงาน'}
              </button>
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} /> {showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
