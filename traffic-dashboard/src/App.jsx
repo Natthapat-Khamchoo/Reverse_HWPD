@@ -195,7 +195,7 @@ export default function App() {
     const dateStr = now.toLocaleDateString('th-TH', dateOptions);
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     
-    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า) ดังนี้\n\n`;
+    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า/ขาออก) ดังนี้\n\n`;
 
     // 2. กำหนดโครงสร้างรายงาน (Regions & Roads)
     const regions = [
