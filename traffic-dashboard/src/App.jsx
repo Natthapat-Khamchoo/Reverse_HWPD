@@ -19,7 +19,7 @@ import { processSheetData } from './utils/dataProcessor';
 import SystemLoader from './components/SystemLoader';
 import MultiSelectDropdown from './components/MultiSelectDropdown';
 import KPI_Card from './components/KPICard';
-import LongdoMapViewer from './components/LongdoMapViewer'; // ใช้ Longdo Map
+import LongdoMapViewer from './components/LongdoMapViewer';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 ChartJS.defaults.color = '#94a3b8'; 
@@ -27,8 +27,8 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 // --- CONFIGURATION ---
-// ใส่ API Key ของ Longdo Map ที่นี่
-const LONGDO_API_KEY = "YOUR_LONGDO_API_KEY_HERE"; 
+// 1. ใส่ API Key ตรงนี้ (ต้องมีเครื่องหมายคำพูดครอบ)
+const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
 // พิกัดหัว-ท้ายถนน สำหรับเช็คสภาพจราจร (Virtual Sensors)
 const TRAFFIC_POINTS = {
@@ -53,15 +53,15 @@ const TRAFFIC_POINTS = {
 
 // ฟังก์ชันคำนวณจราจรจาก Longdo API
 const getLongdoTrafficStatus = async (roadLabel) => {
-  // Map ชื่อป้าย กับ Key ใน Config (ตัดคำในวงเล็บออกเพื่อความง่ายในการ mapping หรือใช้ชื่อตรงๆ)
-  // ในที่นี้ใช้ชื่อตรงๆ จาก TRAFFIC_POINTS
   const segment = TRAFFIC_POINTS[roadLabel] || TRAFFIC_POINTS[roadLabel.split(' ')[0]]; 
   
   if (!segment) return null;
 
   const [slat, slon] = segment.start.split(',');
   const [elat, elon] = segment.end.split(',');
-  const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${43c345d5dae4db42926bd41ae0b5b0fa}`;
+
+  // 2. ใช้ตัวแปร LONGDO_API_KEY ที่ประกาศไว้ด้านบน (อย่าลืม ${...})
+  const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${LONGDO_API_KEY}`;
 
   try {
     const res = await fetch(url);
@@ -230,7 +230,7 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // --- REPORT GENERATOR (Hybrid: CSV + API) ---
+  // --- REPORT GENERATOR ---
   const handleCopyReport = async () => {
     document.body.style.cursor = 'wait'; // UX: แสดงว่ากำลังโหลด
     const now = new Date();
@@ -289,14 +289,12 @@ export default function App() {
     for (const region of regions) {
       report += `${region.name}\n`;
       for (const road of region.roads) {
-        // 1. เช็คจาก Database เราก่อน
         const issues = rawData.filter(d => 
             d.road === road.num && 
             d.date === todayFilterStr &&
             (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
         );
         
-        // Filter Direction (มอเตอร์เวย์สาย 9)
         let specificIssues = issues;
         if (road.dirKey) {
              specificIssues = issues.filter(d => (d.dir && d.dir.includes(road.dirKey)) || (d.detail && d.detail.includes(road.dirKey)));
@@ -309,7 +307,6 @@ export default function App() {
                 return i.detail;
             }).join(', ');
         } else {
-            // 2. ถ้าไม่มีข้อมูล -> ถาม API
             const apiStatus = await getLongdoTrafficStatus(road.label);
             status = apiStatus || "ปกติ";
         }
@@ -377,7 +374,7 @@ export default function App() {
                 <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
             </div>
             <div className="flex-1 w-full h-full">
-                {/* ส่ง API KEY ไปให้ Component */}
+                {/* Send Key Here */}
                 <LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} />
             </div>
          </div>
