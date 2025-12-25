@@ -29,7 +29,47 @@ ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// --- 1. ปรับ Logic ความเร็วใหม่ (Tuning Speed Thresholds) ---
+// --- Helper: ฟังก์ชันสำหรับ Copy บนมือถือ (แก้ปัญหา Async) ---
+const fallbackCopyTextToClipboard = (text) => {
+  var textArea = document.createElement("textarea");
+  textArea.value = text;
+  
+  // ป้องกันการเด้งของ Keyboard บนมือถือ
+  textArea.style.top = "0";
+  textArea.style.left = "0";
+  textArea.style.position = "fixed";
+
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+
+  try {
+    var successful = document.execCommand('copy');
+    var msg = successful ? 'successful' : 'unsuccessful';
+    // console.log('Fallback: Copying text command was ' + msg);
+  } catch (err) {
+    console.error('Fallback: Oops, unable to copy', err);
+    throw new Error("Copy failed");
+  }
+
+  document.body.removeChild(textArea);
+};
+
+const copyToClipboard = async (text) => {
+  if (!navigator.clipboard) {
+    fallbackCopyTextToClipboard(text);
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    console.warn("Clipboard API failed (likely due to async delay), trying fallback...", err);
+    fallbackCopyTextToClipboard(text);
+  }
+};
+
+
+// --- Traffic Logic ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -49,12 +89,8 @@ const getTrafficFromCoords = async (start, end) => {
 
       const speed = distanceKm / timeHour; 
 
-      // --- เกณฑ์ใหม่ (สมจริงมากขึ้นสำหรับค่าเฉลี่ย) ---
-      // > 40 km/h = ไหลลื่น (เพราะเป็นค่าเฉลี่ยรวมไฟแดง/ด่าน)
       if (speed >= 40) return { status: "คล่องตัว", code: 1 };
-      // 20-40 km/h = ชะลอตัว
       if (speed >= 20) return { status: "ชะลอตัว", code: 2 };
-      // < 20 km/h = ติดขัดจริงจัง
       return { status: "หนาแน่น/ติดขัด 🔴", code: 3 };
     }
   } catch (err) {
@@ -63,13 +99,12 @@ const getTrafficFromCoords = async (start, end) => {
   return { status: "ตรวจสอบไม่ได้", code: 0 }; 
 };
 
+
 export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
-  
-  // State สำหรับ Loading ตอนกด Copy Report
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
 
   // Controls
@@ -202,10 +237,10 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 NEW: GENERATE REPORT WITH OVERLAY & SUMMARY LOGIC
+  // 🌟 REPORT GENERATOR WITH MOBILE FALLBACK
   // -----------------------------------------------------------------------
   const handleCopyReport = async () => {
-    setIsGeneratingReport(true); // เปิด Loading Overlay
+    setIsGeneratingReport(true);
     
     try {
       const now = new Date();
@@ -219,7 +254,6 @@ export default function App() {
         report += `${region.region}\n`;
         
         for (const road of region.roads) {
-          // 1. เช็ค Manual Log (Priority 1)
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
               d.date === todayFilterStr &&
@@ -234,7 +268,6 @@ export default function App() {
                   return `${prefix}${i.detail}`;
               }).join(', ');
           } else {
-              // 2. ใช้ API เช็ค
               const segmentPromises = road.segments.map(async (seg) => {
                   const result = await getTrafficFromCoords(seg.start, seg.end);
                   return { label: seg.label, ...result };
@@ -242,23 +275,15 @@ export default function App() {
 
               const results = await Promise.all(segmentPromises);
 
-              // --- LOGIC สรุปผลแบบใหม่ (Report by Exception) ---
-              // หาเฉพาะช่วงที่มีปัญหา (Code 2=ชะลอ, 3=ติดขัด)
               const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
-                  // ถ้ามีปัญหา ให้ List เฉพาะช่วงที่มีปัญหา
-                  // ตัวอย่าง: "ช่วงวังน้อย หนาแน่น/ติดขัด 🔴, ช่วงหินกอง ชะลอตัว"
                   finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(', ');
-                  
-                  if (errorSegments.length > 0) {
-                      finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
-                  }
+                  if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
-                  // ถ้าไม่มี Code 2 หรือ 3 เลย แสดงว่าเขียวหมด
                   finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
               }
           }
@@ -266,14 +291,15 @@ export default function App() {
         }
       }
 
-      await navigator.clipboard.writeText(report);
+      // 🔥 ใช้ฟังก์ชัน Copy ตัวใหม่ที่รองรับมือถือ
+      await copyToClipboard(report);
       alert("✅ คัดลอกรายงานเรียบร้อย");
 
     } catch (e) {
       console.error(e);
       alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
     } finally {
-      setIsGeneratingReport(false); // ปิด Loading Overlay
+      setIsGeneratingReport(false);
     }
   };
 
@@ -283,7 +309,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* --- LOADING OVERLAY (แสดงเฉพาะตอนกด Copy Report) --- */}
+      {/* LOADING OVERLAY */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
