@@ -36,35 +36,40 @@ const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
   
-  // เรียก API ของเราเอง
+  // เรียก API หลังบ้านของเรา
   const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
     const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     
-    // อ่านข้อมูล
-    const data = await res.json();
-
-    // เช็คว่า Server ตอบ Error มาหรือไม่?
-    if (!res.ok) {
-        console.error("API Fail:", data); // ดูใน Console (F12) ได้เลยว่าพังเพราะอะไร
-        return "ตรวจสอบไม่ได้ (API Error)";
-    }
+    const json = await res.json(); // เปลี่ยนชื่อตัวแปรรับค่าเป็น json เพื่อความชัดเจน
     
-    if (data && data.meta && data.meta.distance && data.meta.time) {
-      const distanceKm = data.meta.distance / 1000;
-      const timeHour = data.meta.time / 3600;
-      const speed = distanceKm / timeHour;
+    // 🔥 แก้ไข Logic การดึงค่าตรงนี้ครับ (Parse ให้ตรงกับ JSON ของ Longdo)
+    if (json && json.data && json.data.length > 0) {
+      const route = json.data[0]; // ดึงข้อมูลเส้นทางแรก
       
+      const distanceKm = route.distance / 1000; // แปลงเมตร เป็น กิโลเมตร
+      const timeHour = route.interval / 3600;   // แปลงวินาที เป็น ชั่วโมง (Longdo ใช้ interval)
+      
+      // ป้องกันการหารด้วย 0
+      if (timeHour <= 0) return "ตรวจสอบไม่ได้";
+
+      const speed = distanceKm / timeHour; // คำนวณความเร็ว (km/h)
+      
+      // Console ดูค่าจริง (เผื่ออยาก Debug)
+      // console.log(`Speed: ${speed.toFixed(2)} km/h`);
+
+      // เกณฑ์การวัดผล
       if (speed >= 80) return "คล่องตัว";
       if (speed >= 60) return "ปกติ";
       if (speed >= 35) return "ชะลอตัว";
       return "หนาแน่น/ติดขัด 🔴";
     }
   } catch (err) {
-    console.warn("Network Error:", err.message);
+    console.warn("Traffic API Warning:", err.message);
   }
-  return "อยู่ระหว่างตรวจสอบสัญญาณ"; 
+  return "ตรวจสอบไม่ได้"; 
 };
 
 export default function App() {
