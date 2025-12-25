@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react'; // เพิ่ม useCallback
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { 
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick // เพิ่ม icon
+  TrendingUp, MousePointerClick, ClipboardCopy, FileText // <--- เพิ่ม icon
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -130,13 +130,10 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
-  // --- Stats & INTERACTIVE CHART Logic ---
+  // --- Stats ---
   const stats = useMemo(() => {
     const drunkCount = visualData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
-    
-    // Divisions Array (สำคัญ: ต้องเรียงตามลำดับเดียวกับ Label ในกราฟ)
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
-    
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = mainCats.map(cat => ({
         label: cat,
@@ -147,22 +144,18 @@ export default function App() {
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData]);
 
-  // --- CLICK HANDLER สำหรับกราฟ ---
+  // --- Click Handler ---
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
-
-    // หา Index ของแท่งที่กด
     const dataIndex = elements[0].index;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const clickedDiv = divisions[dataIndex];
-
-    // Toggle Logic: ถ้ากดตัวเดิม ให้ยกเลิกการกรอง, ถ้ากดตัวใหม่ ให้กรองตัวนั้น
     if (filterDiv === clickedDiv) {
-        setFilterDiv(''); // ยกเลิก
+        setFilterDiv(''); 
         setFilterSt('');
     } else {
-        setFilterDiv(clickedDiv); // เลือก
-        setFilterSt(''); // Reset สถานีเมื่อเปลี่ยน กก.
+        setFilterDiv(clickedDiv);
+        setFilterSt('');
     }
   }, [filterDiv]);
 
@@ -173,7 +166,6 @@ export default function App() {
         const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
         return inDate && visualRule;
     });
-
     const labels = [];
     let curr = new Date(trendStart);
     const end = new Date(trendEnd);
@@ -193,6 +185,115 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
+  // -----------------------------------------------------------------------
+  // 🌟 NEW FUNCTION: COPY TRAFFIC REPORT
+  // -----------------------------------------------------------------------
+  const handleCopyReport = () => {
+    const now = new Date();
+    // 1. สร้าง Header วันเวลาปัจจุบัน (21 ธ.ค.68 เวลา 21.00 น.)
+    const dateOptions = { day: 'numeric', month: 'short', year: '2-digit' };
+    const dateStr = now.toLocaleDateString('th-TH', dateOptions);
+    const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    
+    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า) ดังนี้\n\n`;
+
+    // 2. กำหนดโครงสร้างรายงาน (Regions & Roads)
+    const regions = [
+      {
+        name: "1.เส้นทางภาคเหนือ",
+        roads: [
+          { num: "1", label: "ทล.1 (พหลโยธิน)" },
+          { num: "32", label: "ทล.32 (เอเชีย)" },
+          { num: "340", label: "ทล.340 (สุพรรณบุรี-ชัยนาท)" },
+          { num: "347", label: "ทล.347 (บางปะหัน)" }
+        ]
+      },
+      {
+        name: "2.เส้นทางภาคตะวันออกเฉียงเหนือ",
+        roads: [
+          { num: "1", label: "ทล.1 (พหลโยธิน)" },
+          { num: "2", label: "ทล.2 (มิตรภาพ)" },
+          { num: "21", label: "ทล.21 (พุแค-หล่มสัก)" },
+          { num: "304", label: "ทล.304 (กบินทร์บุรี-ปักธงชัย)" },
+          { num: "348", label: "ทล.348 (สระแก้ว-โนนดินแดง)" }
+        ]
+      },
+      {
+        name: "3.เส้นทางภาคตะวันออก",
+        roads: [
+          { num: "3", label: "ทล.3 (สุขุมวิท)" },
+          { num: "34", label: "ทล.34 (เทพรัตน)" }
+        ]
+      },
+      {
+        name: "4.เส้นทางภาคใต้",
+        roads: [
+          { num: "4", label: "ทล.4(เพชรเกษม)" },
+          { num: "35", label: "ทล.35 (พระราม 2)" }
+        ]
+      },
+      {
+        name: "5.ทางหลวงพิเศษระหว่างเมือง\nหมายเลข 6 , 7 , 9 (มอเตอร์เวย์)",
+        roads: [
+          { num: "6", label: "ทล.พ.6" },
+          { num: "7", label: "ทล.พ.7" },
+          { num: "81", label: "ทล.พ.81" },
+          { num: "9", label: "ทล.พ.9 (ตอ.)", dirCheck: "ตะวันออก" },
+          { num: "9", label: "ทล.พ.9 (ตต.)", dirCheck: "ตะวันตก" }
+        ]
+      }
+    ];
+
+    // วันที่สำหรับกรองข้อมูล (ใช้วันปัจจุบันในรูปแบบ YYYY-MM-DD เพื่อเทียบกับ Data)
+    const todayFilterStr = getThaiDateStr(now);
+
+    // 3. Loop สร้างข้อความ
+    regions.forEach(region => {
+      report += `${region.name}\n`;
+      
+      region.roads.forEach(road => {
+        // ค้นหาเหตุการณ์: ต้องตรงเลขถนน + เป็นวันนี้ + (จราจรติดขัด หรือ ช่องทางพิเศษ)
+        const issues = rawData.filter(d => 
+            d.road === road.num && 
+            (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ') &&
+            d.date === todayFilterStr
+        );
+        
+        // กรณีพิเศษ: แยก ตอ./ตต. ของมอเตอร์เวย์สาย 9 (ถ้าข้อมูลใน CSV มีระบุทิศทาง)
+        // ถ้าไม่มีข้อมูลทิศทางที่ชัดเจน มันจะเหมา road=9 ทั้งหมด
+        let specificIssues = issues;
+        if (road.dirCheck) {
+             specificIssues = issues.filter(d => d.dir.includes(road.dirCheck) || d.detail.includes(road.dirCheck));
+             // ถ้าไม่เจอทิศทาง ให้ปล่อยว่างหรือใส่ normal logic
+             if (specificIssues.length === 0 && issues.length > 0 && road.num === '9') {
+                 // ถ้ามีเหตุการณ์ road 9 แต่ไม่ระบุทิศ ให้แสดงทั้งคู่ไปก่อนเพื่อความปลอดภัย
+                 // specificIssues = issues; 
+             }
+        }
+
+        let status = "ปกติ";
+
+        if (specificIssues.length > 0) {
+            // ดึงรายละเอียดมาแสดง
+            const details = specificIssues.map(i => i.detail).join(', ');
+            status = details || "ปริมาณรถหนาแน่น"; 
+        }
+
+        report += `- ${road.label} : ${status}\n`;
+      });
+    });
+
+    // 4. Copy to Clipboard
+    navigator.clipboard.writeText(report).then(() => {
+      alert("✅ คัดลอกรายงานเรียบร้อยแล้ว!");
+    }).catch(err => {
+      console.error('Failed to copy: ', err);
+      alert("❌ เกิดข้อผิดพลาดในการคัดลอก");
+    });
+  };
+  // -----------------------------------------------------------------------
+
+
   if (loading) return <SystemLoader />;
   if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
 
@@ -205,6 +306,14 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-3">
+             {/* ปุ่มใหม่: คัดลอกรายงาน */}
+             <button 
+                onClick={handleCopyReport} 
+                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"
+             >
+                <ClipboardCopy size={14} /> คัดลอกรายงาน
+             </button>
+
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} /> {showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
              </button>
