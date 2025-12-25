@@ -1,25 +1,33 @@
-// /api/traffic.js
 export default async function handler(req, res) {
-  // 1. รับค่าพิกัดที่ส่งมาจากหน้าบ้าน
   const { slat, slon, elat, elon } = req.query;
-  const apiKey = "43c345d5dae4db42926bd41ae0b5b0fa"; // API Key ของคุณ
+  const apiKey = "43c345d5dae4db42926bd41ae0b5b0fa"; // Key ของคุณ
 
   if (!slat || !slon || !elat || !elon) {
     return res.status(400).json({ error: 'Missing coordinates' });
   }
 
-  // 2. URL ของ Longdo (ยิงจาก Server Vercel โดยตรง)
   const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${apiKey}`;
 
   try {
-    // 3. ยิงไปขอข้อมูล
-    const response = await fetch(url);
-    const data = await response.json();
+    // 🔥 แก้ไขจุดนี้: เพิ่ม options { headers: ... } เข้าไป
+    const response = await fetch(url, {
+      headers: {
+        // ใส่ชื่อเว็บของคุณตรงนี้ (ต้องตรงกับที่ลงทะเบียนใน Longdo)
+        'Referer': 'https://reverse-hwpd.vercel.app' 
+      }
+    });
 
-    // 4. ส่งข้อมูลกลับไปให้หน้าบ้าน
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Longdo Error:", errorText);
+        return res.status(response.status).json({ error: "Longdo API Error", details: errorText });
+    }
+
+    const data = await response.json();
     res.status(200).json(data);
+    
   } catch (error) {
-    console.error("Longdo API Error:", error);
-    res.status(500).json({ error: 'Failed to fetch traffic data' });
+    console.error("Server Error:", error);
+    res.status(500).json({ error: 'Internal Server Error', message: error.message });
   }
 }

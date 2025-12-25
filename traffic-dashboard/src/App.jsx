@@ -36,31 +36,35 @@ const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
   
-  // เรียก API ของเราเองที่สร้างไว้ใน folder /api/traffic.js
-  // ไม่ต้องใส่ API Key ตรงนี้ (เพราะใส่ไว้ในไฟล์ api/traffic.js แล้ว)
+  // เรียก API ของเราเอง
   const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
     
+    // อ่านข้อมูล
     const data = await res.json();
+
+    // เช็คว่า Server ตอบ Error มาหรือไม่?
+    if (!res.ok) {
+        console.error("API Fail:", data); // ดูใน Console (F12) ได้เลยว่าพังเพราะอะไร
+        return "ตรวจสอบไม่ได้ (API Error)";
+    }
     
     if (data && data.meta && data.meta.distance && data.meta.time) {
       const distanceKm = data.meta.distance / 1000;
       const timeHour = data.meta.time / 3600;
-      const speed = distanceKm / timeHour; // ความเร็วเฉลี่ย (km/h)
+      const speed = distanceKm / timeHour;
       
-      // เกณฑ์การวัดผล
       if (speed >= 80) return "คล่องตัว";
       if (speed >= 60) return "ปกติ";
       if (speed >= 35) return "ชะลอตัว";
       return "หนาแน่น/ติดขัด 🔴";
     }
   } catch (err) {
-    console.warn("Traffic API Warning:", err.message);
+    console.warn("Network Error:", err.message);
   }
-  return "ตรวจสอบไม่ได้"; // กรณี API Error
+  return "อยู่ระหว่างตรวจสอบสัญญาณ"; 
 };
 
 export default function App() {
