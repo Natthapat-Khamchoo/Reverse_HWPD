@@ -3,7 +3,8 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle
+  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle,
+  ArrowRightLeft // ไอคอนสำหรับสลับทิศทาง
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -49,6 +50,7 @@ const getTrafficFromCoords = async (start, end) => {
 
       const speed = distanceKm / timeHour; 
 
+      // ปรับเกณฑ์ความเร็วตามความเหมาะสม
       if (speed >= 40) return { status: "คล่องตัว", code: 1 };
       if (speed >= 20) return { status: "ชะลอตัว", code: 2 };
       return { status: "หนาแน่น/ติดขัด 🔴", code: 3 };
@@ -70,6 +72,9 @@ export default function App() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
+
+  // 🔥 State ใหม่: เลือกทิศทาง (outbound = ขาออก, inbound = ขาเข้า)
+  const [reportDirection, setReportDirection] = useState('outbound');
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
@@ -201,11 +206,11 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 1. GENERATE REPORT FUNCTION (แค่สร้าง Text แล้วเปิด Modal)
+  // 🌟 GENERATE REPORT (รองรับขาเข้า/ขาออก)
   // -----------------------------------------------------------------------
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
-    setCopySuccess(false); // Reset success state
+    setCopySuccess(false);
     
     try {
       const now = new Date();
@@ -213,12 +218,16 @@ export default function App() {
       const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
       const todayFilterStr = getThaiDateStr(now);
       
-      let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
+      // 🔥 ปรับหัวข้อตามทิศทาง
+      const directionText = reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)';
+      let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
 
       for (const region of TRAFFIC_DATA) {
         report += `${region.region}\n`;
         
         for (const road of region.roads) {
+          // 1. Manual Log (เช็คว่ามีรายงาน Manual ที่ตรงกับทิศทางไหม - อันนี้อาจจะต้องปรับในอนาคตถ้า Manual Log มีทิศทาง)
+          // เบื้องต้นดึงมาแสดงก่อน
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
               d.date === todayFilterStr &&
@@ -233,8 +242,19 @@ export default function App() {
                   return `${prefix}${i.detail}`;
               }).join(', ');
           } else {
+              // 2. API Check
               const segmentPromises = road.segments.map(async (seg) => {
-                  const result = await getTrafficFromCoords(seg.start, seg.end);
+                  // 🔥 Logic สลับทิศทาง
+                  let start = seg.start;
+                  let end = seg.end;
+                  
+                  if (reportDirection === 'inbound') {
+                      // ถ้าขาเข้า ให้สลับ Start <-> End (วิ่งย้อนกลับ)
+                      start = seg.end;
+                      end = seg.start;
+                  }
+
+                  const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
 
@@ -255,7 +275,6 @@ export default function App() {
         }
       }
 
-      // เสร็จแล้วเก็บใส่ State และเปิด Modal
       setGeneratedReportText(report);
       setShowReportModal(true);
 
@@ -267,15 +286,10 @@ export default function App() {
     }
   };
 
-  // -----------------------------------------------------------------------
-  // 🌟 2. EXECUTE COPY FUNCTION (อันนี้ทำงานใน Modal กดปุ๊บติดปั๊บ)
-  // -----------------------------------------------------------------------
   const handleCopyText = () => {
     navigator.clipboard.writeText(generatedReportText).then(() => {
       setCopySuccess(true);
-      // alert("✅ คัดลอกเรียบร้อย"); // Optional: ไม่ต้อง Alert ก็ได้เพราะมีปุ่มเขียวโชว์
     }).catch(err => {
-      // Fallback สำหรับเครื่องเก่าจริงๆ
       const textArea = document.createElement("textarea");
       textArea.value = generatedReportText;
       document.body.appendChild(textArea);
@@ -292,34 +306,31 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* --- LOADING OVERLAY --- */}
+      {/* LOADING OVERLAY */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
               <Loader2 size={48} className="text-yellow-400 animate-spin" />
               <div className="text-center">
                  <h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3>
-                 <p className="text-slate-400 text-sm">ระบบกำลังตรวจสอบสภาพจราจรทั่วประเทศ</p>
+                 <p className="text-slate-400 text-sm">กำลังตรวจสอบ: {reportDirection === 'outbound' ? 'ขาออก (จาก กทม.)' : 'ขาเข้า (เข้า กทม.)'}</p>
               </div>
            </div>
         </div>
       )}
 
-      {/* --- REPORT RESULT MODAL (พระเอกของเรา) --- */}
+      {/* REPORT RESULT MODAL */}
       {showReportModal && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Modal Header */}
             <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
               <h3 className="text-white font-bold flex items-center gap-2">
-                <ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก
+                <ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก {reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)'}
               </h3>
               <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white p-1">
                 <X size={24}/>
               </button>
             </div>
-            
-            {/* Modal Body: Text Area */}
             <div className="p-4 flex-1">
               <textarea 
                 className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none"
@@ -327,8 +338,6 @@ export default function App() {
                 readOnly
               />
             </div>
-
-            {/* Modal Footer: Action Button */}
             <div className="p-4 bg-slate-900 border-t border-slate-700">
               <button 
                 onClick={handleCopyText}
@@ -341,9 +350,6 @@ export default function App() {
                 {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>}
                 {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
               </button>
-              <p className="text-center text-[10px] text-slate-500 mt-2">
-                *หากปุ่มไม่ทำงาน ให้กดค้างที่ข้อความเพื่อเลือกและคัดลอกเอง
-              </p>
             </div>
           </div>
         </div>
@@ -355,22 +361,38 @@ export default function App() {
            <div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div>
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+             {/* 🔥 ปุ่มเลือกทิศทาง */}
+             <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+                <button 
+                  onClick={() => setReportDirection('outbound')}
+                  className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                >
+                  ขาออก
+                </button>
+                <button 
+                  onClick={() => setReportDirection('inbound')}
+                  className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                >
+                  ขาเข้า
+                </button>
+             </div>
+
              <button 
                 onClick={handleGenerateReport} 
                 className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"
              >
                 <ClipboardCopy size={14} /> สร้างรายงาน
              </button>
+
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-                <Filter size={14} /> {showFilters ? 'ซ่อน' : 'ตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                <Filter size={14} />
              </button>
-             <span className="text-[10px] text-green-500 font-mono flex items-center gap-1"><Activity size={10} className="animate-pulse"/> Live</span>
-             <button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /> รีเฟรช</button>
+             <button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /></button>
         </div>
       </div>
 
-      {/* Control Panel */}
+      {/* Control Panel (เหมือนเดิม) */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
