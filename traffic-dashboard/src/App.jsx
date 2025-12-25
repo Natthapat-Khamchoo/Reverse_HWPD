@@ -3,39 +3,84 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy, FileText // <--- เพิ่ม icon
+  TrendingUp, MousePointerClick, ClipboardCopy 
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
 } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 
-import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES } from './constants/config';
-
-// Define Colors
-const CATEGORY_COLORS = {
-  'อุบัติเหตุ': '#EF4444',     
-  'จับกุม': '#A855F7',
-  'เมาแล้วขับ': '#D946EF',
-  'ว.43': '#3B82F6',
-  'ช่องทางพิเศษ': '#22C55E',
-  'ปิดช่องทางพิเศษ': '#64748B',
-  'จราจรติดขัด': '#EAB308',
-  'จราจรปกติ': '#94A3B8',
-  'ทั่วไป': '#64748B'
-};
-
+// Config & Utils
+import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES, CATEGORY_COLORS } from './constants/config';
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
+
+// Components
 import SystemLoader from './components/SystemLoader';
 import MultiSelectDropdown from './components/MultiSelectDropdown';
 import KPI_Card from './components/KPICard';
-import MapViewer from './components/MapViewer';
+import LongdoMapViewer from './components/LongdoMapViewer'; // ใช้ Longdo Map
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 ChartJS.defaults.color = '#94a3b8'; 
 ChartJS.defaults.borderColor = '#334155'; 
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
+
+// --- CONFIGURATION ---
+// ใส่ API Key ของ Longdo Map ที่นี่
+const LONGDO_API_KEY = "YOUR_LONGDO_API_KEY_HERE"; 
+
+// พิกัดหัว-ท้ายถนน สำหรับเช็คสภาพจราจร (Virtual Sensors)
+const TRAFFIC_POINTS = {
+  "ทล.1 (พหลโยธิน)":      { start: "13.996,100.615", end: "14.230,100.720" }, 
+  "ทล.32 (เอเชีย)":       { start: "14.330,100.540", end: "14.600,100.450" }, 
+  "ทล.340 (สุพรรณบุรี)":  { start: "13.928,100.418", end: "14.180,100.250" }, 
+  "ทล.347 (บางปะหัน)":    { start: "14.050,100.550", end: "14.400,100.540" },
+  "ทล.2 (มิตรภาพ)":       { start: "14.630,101.100", end: "14.690,101.250" }, 
+  "ทล.21 (พุแค-หล่มสัก)": { start: "14.650,100.880", end: "14.800,101.000" },
+  "ทล.304 (กบินทร์บุรี)": { start: "14.150,101.800", end: "14.350,101.950" }, 
+  "ทล.348 (สระแก้ว)":     { start: "14.100,102.600", end: "14.250,102.700" },
+  "ทล.3 (สุขุมวิท)":      { start: "13.200,100.950", end: "13.350,101.000" },
+  "ทล.34 (เทพรัตน)":      { start: "13.660,100.650", end: "13.580,100.780" },
+  "ทล.4 (เพชรเกษม)":      { start: "13.700,100.380", end: "13.650,100.300" }, 
+  "ทล.35 (พระราม 2)":     { start: "13.620,100.350", end: "13.550,100.200" }, 
+  "ทล.พ.6":               { start: "14.700,101.400", end: "14.850,101.600" },
+  "ทล.พ.7":               { start: "13.720,100.750", end: "13.600,100.950" }, 
+  "ทล.พ.81":              { start: "13.850,100.450", end: "13.950,100.350" },
+  "ทล.พ.9 (ตอ.)":         { start: "13.850,100.680", end: "13.950,100.700" }, 
+  "ทล.พ.9 (ตต.)":         { start: "13.850,100.400", end: "14.000,100.420" },
+};
+
+// ฟังก์ชันคำนวณจราจรจาก Longdo API
+const getLongdoTrafficStatus = async (roadLabel) => {
+  // Map ชื่อป้าย กับ Key ใน Config (ตัดคำในวงเล็บออกเพื่อความง่ายในการ mapping หรือใช้ชื่อตรงๆ)
+  // ในที่นี้ใช้ชื่อตรงๆ จาก TRAFFIC_POINTS
+  const segment = TRAFFIC_POINTS[roadLabel] || TRAFFIC_POINTS[roadLabel.split(' ')[0]]; 
+  
+  if (!segment) return null;
+
+  const [slat, slon] = segment.start.split(',');
+  const [elat, elon] = segment.end.split(',');
+  const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${43c345d5dae4db42926bd41ae0b5b0fa}`;
+
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data && data.meta && data.meta.distance && data.meta.time) {
+      const distanceKm = data.meta.distance / 1000;
+      const timeHour = data.meta.time / 3600;
+      const speed = distanceKm / timeHour;
+      
+      if (speed >= 80) return "คล่องตัว (ใช้ความเร็วได้ดี)";
+      if (speed >= 60) return "ปกติ";
+      if (speed >= 30) return "ชะลอตัว (ปริมาณรถมาก)";
+      return "หนาแน่น/ติดขัด 🔴";
+    }
+  } catch (err) {
+    console.error("Longdo API Error:", err);
+  }
+  return null;
+};
 
 export default function App() {
   const [rawData, setRawData] = useState([]);
@@ -90,7 +135,7 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // --- LOG Data ---
+  // --- LOG Data (แสดงทั้งหมด) ---
   const logData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -103,7 +148,7 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // --- Visual Data (Accident = KK.8) ---
+  // --- Visual Data (Accident = กก.8 เท่านั้น) ---
   const visualData = useMemo(() => {
     return logData.filter(item => {
         if (item.category === 'อุบัติเหตุ') {
@@ -130,7 +175,7 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
-  // --- Stats ---
+  // --- Stats & Interactive Chart ---
   const stats = useMemo(() => {
     const drunkCount = visualData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
@@ -144,7 +189,7 @@ export default function App() {
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData]);
 
-  // --- Click Handler ---
+  // Chart Click Handler
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
     const dataIndex = elements[0].index;
@@ -185,26 +230,23 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // -----------------------------------------------------------------------
-  // 🌟 NEW FUNCTION: COPY TRAFFIC REPORT
-  // -----------------------------------------------------------------------
-  const handleCopyReport = () => {
+  // --- REPORT GENERATOR (Hybrid: CSV + API) ---
+  const handleCopyReport = async () => {
+    document.body.style.cursor = 'wait'; // UX: แสดงว่ากำลังโหลด
     const now = new Date();
-    // 1. สร้าง Header วันเวลาปัจจุบัน (21 ธ.ค.68 เวลา 21.00 น.)
-    const dateOptions = { day: 'numeric', month: 'short', year: '2-digit' };
-    const dateStr = now.toLocaleDateString('th-TH', dateOptions);
+    const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const todayFilterStr = getThaiDateStr(now);
     
-    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า/ขาออก) ดังนี้\n\n`;
+    let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. (ขาเข้า) ดังนี้\n\n`;
 
-    // 2. กำหนดโครงสร้างรายงาน (Regions & Roads)
     const regions = [
       {
         name: "1.เส้นทางภาคเหนือ",
         roads: [
           { num: "1", label: "ทล.1 (พหลโยธิน)" },
           { num: "32", label: "ทล.32 (เอเชีย)" },
-          { num: "340", label: "ทล.340 (สุพรรณบุรี-ชัยนาท)" },
+          { num: "340", label: "ทล.340 (สุพรรณบุรี)" },
           { num: "347", label: "ทล.347 (บางปะหัน)" }
         ]
       },
@@ -214,8 +256,8 @@ export default function App() {
           { num: "1", label: "ทล.1 (พหลโยธิน)" },
           { num: "2", label: "ทล.2 (มิตรภาพ)" },
           { num: "21", label: "ทล.21 (พุแค-หล่มสัก)" },
-          { num: "304", label: "ทล.304 (กบินทร์บุรี-ปักธงชัย)" },
-          { num: "348", label: "ทล.348 (สระแก้ว-โนนดินแดง)" }
+          { num: "304", label: "ทล.304 (กบินทร์บุรี)" },
+          { num: "348", label: "ทล.348 (สระแก้ว)" }
         ]
       },
       {
@@ -228,7 +270,7 @@ export default function App() {
       {
         name: "4.เส้นทางภาคใต้",
         roads: [
-          { num: "4", label: "ทล.4(เพชรเกษม)" },
+          { num: "4", label: "ทล.4 (เพชรเกษม)" },
           { num: "35", label: "ทล.35 (พระราม 2)" }
         ]
       },
@@ -238,61 +280,46 @@ export default function App() {
           { num: "6", label: "ทล.พ.6" },
           { num: "7", label: "ทล.พ.7" },
           { num: "81", label: "ทล.พ.81" },
-          { num: "9", label: "ทล.พ.9 (ตอ.)", dirCheck: "ตะวันออก" },
-          { num: "9", label: "ทล.พ.9 (ตต.)", dirCheck: "ตะวันตก" }
+          { num: "9", label: "ทล.พ.9 (ตอ.)", dirKey: "ตะวันออก" },
+          { num: "9", label: "ทล.พ.9 (ตต.)", dirKey: "ตะวันตก" }
         ]
       }
     ];
 
-    // วันที่สำหรับกรองข้อมูล (ใช้วันปัจจุบันในรูปแบบ YYYY-MM-DD เพื่อเทียบกับ Data)
-    const todayFilterStr = getThaiDateStr(now);
-
-    // 3. Loop สร้างข้อความ
-    regions.forEach(region => {
+    for (const region of regions) {
       report += `${region.name}\n`;
-      
-      region.roads.forEach(road => {
-        // ค้นหาเหตุการณ์: ต้องตรงเลขถนน + เป็นวันนี้ + (จราจรติดขัด หรือ ช่องทางพิเศษ)
+      for (const road of region.roads) {
+        // 1. เช็คจาก Database เราก่อน
         const issues = rawData.filter(d => 
             d.road === road.num && 
-            (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ') &&
-            d.date === todayFilterStr
+            d.date === todayFilterStr &&
+            (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
         );
         
-        // กรณีพิเศษ: แยก ตอ./ตต. ของมอเตอร์เวย์สาย 9 (ถ้าข้อมูลใน CSV มีระบุทิศทาง)
-        // ถ้าไม่มีข้อมูลทิศทางที่ชัดเจน มันจะเหมา road=9 ทั้งหมด
+        // Filter Direction (มอเตอร์เวย์สาย 9)
         let specificIssues = issues;
-        if (road.dirCheck) {
-             specificIssues = issues.filter(d => d.dir.includes(road.dirCheck) || d.detail.includes(road.dirCheck));
-             // ถ้าไม่เจอทิศทาง ให้ปล่อยว่างหรือใส่ normal logic
-             if (specificIssues.length === 0 && issues.length > 0 && road.num === '9') {
-                 // ถ้ามีเหตุการณ์ road 9 แต่ไม่ระบุทิศ ให้แสดงทั้งคู่ไปก่อนเพื่อความปลอดภัย
-                 // specificIssues = issues; 
-             }
+        if (road.dirKey) {
+             specificIssues = issues.filter(d => (d.dir && d.dir.includes(road.dirKey)) || (d.detail && d.detail.includes(road.dirKey)));
         }
 
-        let status = "ปกติ";
-
+        let status = "";
         if (specificIssues.length > 0) {
-            // ดึงรายละเอียดมาแสดง
-            const details = specificIssues.map(i => i.detail).join(', ');
-            status = details || "ปริมาณรถหนาแน่น"; 
+            status = specificIssues.map(i => {
+                if(i.category==='ช่องทางพิเศษ') return `เปิดช่องทางพิเศษ ${i.detail}`;
+                return i.detail;
+            }).join(', ');
+        } else {
+            // 2. ถ้าไม่มีข้อมูล -> ถาม API
+            const apiStatus = await getLongdoTrafficStatus(road.label);
+            status = apiStatus || "ปกติ";
         }
-
         report += `- ${road.label} : ${status}\n`;
-      });
-    });
+      }
+    }
 
-    // 4. Copy to Clipboard
-    navigator.clipboard.writeText(report).then(() => {
-      alert("✅ คัดลอกรายงานเรียบร้อยแล้ว!");
-    }).catch(err => {
-      console.error('Failed to copy: ', err);
-      alert("❌ เกิดข้อผิดพลาดในการคัดลอก");
-    });
+    document.body.style.cursor = 'default';
+    navigator.clipboard.writeText(report).then(() => alert("✅ คัดลอกรายงานเรียบร้อย")).catch(() => alert("❌ เกิดข้อผิดพลาด"));
   };
-  // -----------------------------------------------------------------------
-
 
   if (loading) return <SystemLoader />;
   if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
@@ -306,14 +333,9 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-3">
-             {/* ปุ่มใหม่: คัดลอกรายงาน */}
-             <button 
-                onClick={handleCopyReport} 
-                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"
-             >
+             <button onClick={handleCopyReport} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm">
                 <ClipboardCopy size={14} /> คัดลอกรายงาน
              </button>
-
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} /> {showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
              </button>
@@ -355,7 +377,8 @@ export default function App() {
                 <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
             </div>
             <div className="flex-1 w-full h-full">
-                <MapViewer data={mapData} />
+                {/* ส่ง API KEY ไปให้ Component */}
+                <LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} />
             </div>
          </div>
 
