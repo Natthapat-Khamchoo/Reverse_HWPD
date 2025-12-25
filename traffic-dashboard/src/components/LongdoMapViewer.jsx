@@ -3,33 +3,44 @@ import { CATEGORY_COLORS, DIVISION_COLORS } from '../constants/config';
 
 const LongdoMapViewer = ({ data, apiKey }) => {
   const mapInstance = useRef(null);
-  const [status, setStatus] = useState("Initializing...");
+  const [status, setStatus] = useState("Loading...");
+  const mapId = "longdo-map-container";
 
-  // 1. ฟังก์ชันวาดหมุด (แยกออกมาเพื่อให้เรียกได้ตลอด)
+  // 1. ฟังก์ชันวาดหมุด (Marker)
   const updateMarkers = () => {
     if (!mapInstance.current || !window.longdo) return;
+    
     try {
       const longdo = window.longdo;
-      mapInstance.current.Overlays.clear();
+      mapInstance.current.Overlays.clear(); // ลบหมุดเก่า
 
       data.forEach(item => {
         if (item.lat && item.lng) {
-          const color = item.category.includes('อุบัติเหตุ') ? '#FF0000' : (CATEGORY_COLORS[item.category] || '#94a3b8');
-          
+          const color = item.category.includes('อุบัติเหตุ') 
+                        ? '#FF0000' 
+                        : (CATEGORY_COLORS[item.category] || '#94a3b8');
+
           const markerHtml = `
-            <div style="width: 14px; height: 14px; background-color: ${color}; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.8); cursor: pointer;"></div>
+            <div style="
+              width: 14px; height: 14px; 
+              background-color: ${color}; 
+              border: 2px solid white; 
+              border-radius: 50%; 
+              box-shadow: 0 0 5px rgba(0,0,0,0.8);
+              cursor: pointer;
+            "></div>
           `;
-          
+
           const marker = new longdo.Marker(
             { lon: item.lng, lat: item.lat },
             {
               title: item.category,
               icon: { html: markerHtml, offset: { x: 7, y: 7 } },
               detail: `
-                <div style="color: #000; font-family: sans-serif; min-width: 200px;">
-                   <div style="font-weight:bold; color:blue;">${item.category}</div>
-                   <div>${item.detail}</div>
-                   <div style="font-size:10px; color:#666;">${item.time} น.</div>
+                <div style="color: #000; min-width: 200px;">
+                   <div style="font-weight:bold; color:blue; border-bottom:1px solid #ccc;">${item.category}</div>
+                   <div style="margin-top:4px;">${item.detail || '-'}</div>
+                   <div style="font-size:10px; color:#666; margin-top:4px;">${item.time} น. | กก.${item.div}</div>
                 </div>`
             }
           );
@@ -42,11 +53,17 @@ const LongdoMapViewer = ({ data, apiKey }) => {
   };
 
   useEffect(() => {
-    // 2. ฟังก์ชันเริ่มสร้าง Map (จะถูกเรียกเมื่อ script พร้อมแล้วจริงๆ)
+    // 2. ฟังก์ชันเริ่มสร้าง Map
     const initMap = () => {
-      const mapDiv = document.getElementById('longdo-map-container');
-      if (!mapDiv) return;
-      if (mapInstance.current) return; // ถ้ามีแล้วไม่ต้องสร้างใหม่
+      if (!window.longdo || !window.longdo.Map) {
+        // กรณี Script โหลดแล้วแต่ Object ไม่มา (มักเกิดจาก Key/Domain ผิด)
+        console.error("Longdo Script loaded but 'longdo' object missing.");
+        return false;
+      }
+
+      const mapDiv = document.getElementById(mapId);
+      if (!mapDiv) return false;
+      if (mapInstance.current) return true; // มีแล้วไม่ต้องสร้างใหม่
 
       try {
         const longdo = window.longdo;
@@ -58,79 +75,86 @@ const LongdoMapViewer = ({ data, apiKey }) => {
           language: 'th'
         });
 
+        // Add Layers
         mapInstance.current.Layers.add(longdo.Layers.TRAFFIC);
         mapInstance.current.Layers.add(longdo.Layers.GRAY);
 
+        // Bind Ready Event
         mapInstance.current.Event.bind('ready', function() {
            setStatus("Ready");
            updateMarkers();
         });
+        
+        return true;
       } catch (e) {
         console.error("Map Init Error:", e);
         setStatus("Map Error: " + e.message);
+        return false;
       }
     };
 
-    // 3. Logic การโหลด Script และวนเช็ค (Polling)
-    const checkAndInit = () => {
-        // เช็คว่า object longdo มาหรือยัง?
-        if (window.longdo && window.longdo.Map) {
-            initMap();
-            return true; // สำเร็จ
-        }
-        return false; // ยังไม่มา
-    };
+    // 3. Logic โหลด Script และ Polling
+    const scriptId = 'longdo-map-script';
+    let checkInterval = null;
 
-    // เริ่มโหลด Script ถ้ายังไม่มี
-    if (!document.getElementById('longdo-map-script')) {
+    if (!document.getElementById(scriptId)) {
         setStatus("Downloading Script...");
         const script = document.createElement('script');
         script.src = `https://api.longdo.com/map/?key=${apiKey}`;
-        script.id = 'longdo-map-script';
+        script.id = scriptId;
         document.body.appendChild(script);
+        
+        script.onload = () => {
+            // โหลดเสร็จแล้ว รอ Init
+        };
     }
 
-    // *** Key Fix: วนเช็คทุก 500ms จำนวน 40 ครั้ง (รวม 20 วินาที) ***
-    let checks = 0;
-    const timer = setInterval(() => {
-        checks++;
-        const isReady = checkAndInit();
-        
-        if (isReady) {
-            clearInterval(timer); // หยุดเช็คเมื่อเจอ
+    // วนเช็คทุก 500ms (สูงสุด 20 วินาที)
+    let attempts = 0;
+    checkInterval = setInterval(() => {
+        attempts++;
+        if (initMap()) {
+            clearInterval(checkInterval); // สำเร็จ! หยุดเช็ค
         } else {
-            setStatus(`Waiting for Longdo... (${checks})`);
-            if (checks > 40) {
-                clearInterval(timer);
-                setStatus("Timeout: Longdo Script not loaded. Check Internet/Key.");
+            if (attempts > 40) {
+                clearInterval(checkInterval);
+                setStatus("Timeout: Script loaded but Map failed to init. (Check API Key/Domain)");
+            } else {
+                // ยังไม่พร้อม... รอต่อไป
+                if(window.longdo) setStatus("Initializing Map...");
+                else setStatus(`Waiting for Longdo API... (${attempts})`);
             }
         }
     }, 500);
 
-    return () => clearInterval(timer);
+    return () => {
+        if(checkInterval) clearInterval(checkInterval);
+    };
   }, [apiKey]);
 
-  // เมื่อ Data เปลี่ยน ให้วาดหมุดใหม่ (ถ้าแมพพร้อมแล้ว)
+  // อัปเดตหมุดเมื่อข้อมูลเปลี่ยน
   useEffect(() => {
-    if (status === 'Ready') {
-        updateMarkers();
-    }
+    if (status === 'Ready') updateMarkers();
   }, [data, status]);
 
   return (
-    <div className="w-full h-full relative bg-slate-900" style={{ minHeight: '300px' }}>
+    <div className="w-full h-full relative bg-slate-900 rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>
       {/* Loading Overlay */}
       {status !== 'Ready' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 z-10 bg-slate-800/90 p-4 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 z-10 bg-slate-800/95 p-4 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-yellow-500 mb-2"></div>
-          <span className="text-xs font-mono">{status}</span>
-          <div className="mt-2 text-[10px] text-red-400">
-             *หากรอนานเกิน 20วิ อาจเกิดจาก API Key ผิด หรือโดเมนไม่ถูกต้อง
+          <span className="text-xs font-mono font-bold text-yellow-400">{status}</span>
+          <div className="mt-4 text-[10px] text-slate-400 max-w-xs border border-slate-600 p-2 rounded">
+             <strong>คำแนะนำแก้ไข:</strong><br/>
+             1. ไปที่ <a href="https://map.longdo.com/console" target="_blank" className="text-blue-400 underline">Longdo Console</a><br/>
+             2. เมนู My Keys -> แก้ไข Key<br/>
+             3. ช่อง Referer/Domain ใส่ <code>*</code> แล้ว Save<br/>
+             4. รอ 2 นาทีแล้ว Refresh หน้านี้
           </div>
         </div>
       )}
       
-      <div id="longdo-map-container" style={{ width: '100%', height: '100%' }} />
+      <div id={mapId} style={{ width: '100%', height: '100%' }} />
     </div>
   );
 };
