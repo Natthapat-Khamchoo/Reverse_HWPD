@@ -11,10 +11,8 @@ import {
 import { Bar } from 'react-chartjs-2';
 
 // Config & Utils
-import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, EVENT_CATEGORIES, CATEGORY_COLORS } from './constants/config';
-// *** IMPORT ไฟล์ข้อมูลทั่วประเทศที่เพิ่งสร้าง ***
-import { TRAFFIC_DATA } from './constants/traffic_nodes'; 
-
+import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
+import { TRAFFIC_DATA } from './constants/traffic_nodes'; // ข้อมูลพิกัดทั่วประเทศ
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
 
@@ -30,19 +28,20 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 // --- CONFIGURATION ---
-// ใส่ API Key ของคุณที่นี่
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// ฟังก์ชันเช็คจราจร (ปรับปรุงใหม่: รับพิกัด Start/End โดยตรง)
+// ฟังก์ชันเช็คจราจร (ใช้ Proxy /api/longdo เพื่อแก้ CORS)
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
   
-  // ยิง API Longdo
-  const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${LONGDO_API_KEY}`;
+  // เรียกผ่าน Proxy (ต้องมี vercel.json หรือ vite.config.js รองรับ)
+  const url = `/api/longdo/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${LONGDO_API_KEY}`;
 
   try {
     const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    
     const data = await res.json();
     
     if (data && data.meta && data.meta.distance && data.meta.time) {
@@ -57,7 +56,7 @@ const getTrafficFromCoords = async (start, end) => {
       return "หนาแน่น/ติดขัด 🔴";
     }
   } catch (err) {
-    console.error("API Error:", err);
+    console.warn("Traffic API Warning:", err.message); // Log แบบ Warn พอ
   }
   return "ตรวจสอบไม่ได้"; // กรณี API Error
 };
@@ -167,17 +166,13 @@ export default function App() {
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData]);
 
-  // --- Chart Click ---
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
     const dataIndex = elements[0].index;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const clickedDiv = divisions[dataIndex];
-    if (filterDiv === clickedDiv) {
-        setFilterDiv(''); setFilterSt('');
-    } else {
-        setFilterDiv(clickedDiv); setFilterSt('');
-    }
+    if (filterDiv === clickedDiv) { setFilterDiv(''); setFilterSt(''); } 
+    else { setFilterDiv(clickedDiv); setFilterSt(''); }
   }, [filterDiv]);
 
   // --- Trend Chart ---
@@ -206,12 +201,11 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-
   // -----------------------------------------------------------------------
-  // 🌟 NEW FUNCTION: GENERATE REPORT (Full Country Support)
+  // 🌟 SMART REPORT GENERATOR
   // -----------------------------------------------------------------------
   const handleCopyReport = async () => {
-    document.body.style.cursor = 'wait'; // UX: แสดงว่ากำลังโหลด
+    document.body.style.cursor = 'wait';
     const now = new Date();
     const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -219,15 +213,13 @@ export default function App() {
     
     let report = `บก.ทล.\nรายงานสภาพการจราจร\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
 
-    // วนลูปตามภูมิภาค (Region) -> ถนน (Road)
     for (const region of TRAFFIC_DATA) {
       report += `${region.region}\n`;
       
       for (const road of region.roads) {
-        // 1. ตรวจสอบข้อมูล Manual (CSV) ของวันนี้ บนถนนเส้นนี้
-        // Logic: หาว่ามี log ของถนนเส้นนี้ ที่เป็น จราจรติดขัด/ช่องทางพิเศษ หรือไม่
+        // 1. เช็ค Manual Log (Priority สูงสุด)
         const manualIssues = rawData.filter(d => 
-            d.road === road.id && // เช็ค ID ถนน เช่น "1", "32"
+            d.road === road.id && 
             d.date === todayFilterStr &&
             (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
         );
@@ -235,14 +227,13 @@ export default function App() {
         let finalStatus = "";
 
         if (manualIssues.length > 0) {
-            // Case A: มีรายงานจากเจ้าหน้าที่ -> ใช้ข้อความจากเจ้าหน้าที่
+            // ใช้ข้อมูลจากเจ้าหน้าที่
             finalStatus = manualIssues.map(i => {
-                if(i.category === 'ช่องทางพิเศษ') return `เปิดช่องทางพิเศษ ${i.detail}`;
-                return i.detail;
+                const prefix = i.category === 'ช่องทางพิเศษ' ? 'เปิดช่องทางพิเศษ ' : '';
+                return `${prefix}${i.detail}`;
             }).join(', ');
         } else {
-            // Case B: ไม่มีรายงาน -> ให้ API วิ่งเช็คทุก Segment ของถนนเส้นนี้
-            // ใช้ Promise.all เพื่อยิงพร้อมกัน (เร็วขึ้น)
+            // 2. ใช้ API เช็ค (Smart Summary)
             const segmentPromises = road.segments.map(async (seg) => {
                 const status = await getTrafficFromCoords(seg.start, seg.end);
                 return { label: seg.label, status: status };
@@ -250,30 +241,36 @@ export default function App() {
 
             const results = await Promise.all(segmentPromises);
 
-            // สรุปผล: หาช่วงที่ "ไม่ปกติ"
+            // หาช่วงที่มีปัญหา
             const badSegments = results.filter(r => 
-                !r.status.includes("ปกติ") && !r.status.includes("คล่องตัว")
+                !r.status.includes("คล่องตัว") && 
+                !r.status.includes("ปกติ") &&
+                r.status !== "ตรวจสอบไม่ได้"
             );
+            
+            const errorSegments = results.filter(r => r.status === "ตรวจสอบไม่ได้");
 
-            if (badSegments.length === 0) {
-                // ถ้าทุกช่วง ปกติ/คล่องตัว
-                finalStatus = "คล่องตัวตลอดสาย";
-            } else {
-                // ถ้ามีช่วงติดขัด ให้ระบุชื่อช่วง
+            if (badSegments.length > 0) {
+                // มีรถติด -> แสดงเฉพาะช่วงที่ติด
                 finalStatus = badSegments.map(b => `${b.label} ${b.status}`).join(', ');
+                if(errorSegments.length > 0) finalStatus += ` (บางช่วงตรวจสอบไม่ได้)`;
+            } else if (results.every(r => r.status === "ตรวจสอบไม่ได้")) {
+                // พังหมด
+                finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
+            } else {
+                // เขียวหมด
+                finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
             }
         }
-
         report += `- ${road.name} : ${finalStatus}\n`;
       }
     }
 
     document.body.style.cursor = 'default';
     navigator.clipboard.writeText(report)
-        .then(() => alert("✅ คัดลอกรายงาน (ทั่วประเทศ) เรียบร้อยแล้ว!"))
-        .catch(() => alert("❌ เกิดข้อผิดพลาดในการคัดลอก"));
+        .then(() => alert("✅ คัดลอกรายงานเรียบร้อย"))
+        .catch(() => alert("❌ เกิดข้อผิดพลาด"));
   };
-
 
   if (loading) return <SystemLoader />;
   if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
@@ -331,7 +328,6 @@ export default function App() {
                 <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
             </div>
             <div className="flex-1 w-full h-full">
-                {/* Send Key Here */}
                 <LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} />
             </div>
          </div>
