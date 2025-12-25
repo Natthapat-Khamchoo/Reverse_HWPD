@@ -3,7 +3,7 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy, Loader2 
+  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -28,46 +28,6 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
-
-// --- Helper: ฟังก์ชันสำหรับ Copy บนมือถือ (แก้ปัญหา Async) ---
-const fallbackCopyTextToClipboard = (text) => {
-  var textArea = document.createElement("textarea");
-  textArea.value = text;
-  
-  // ป้องกันการเด้งของ Keyboard บนมือถือ
-  textArea.style.top = "0";
-  textArea.style.left = "0";
-  textArea.style.position = "fixed";
-
-  document.body.appendChild(textArea);
-  textArea.focus();
-  textArea.select();
-
-  try {
-    var successful = document.execCommand('copy');
-    var msg = successful ? 'successful' : 'unsuccessful';
-    // console.log('Fallback: Copying text command was ' + msg);
-  } catch (err) {
-    console.error('Fallback: Oops, unable to copy', err);
-    throw new Error("Copy failed");
-  }
-
-  document.body.removeChild(textArea);
-};
-
-const copyToClipboard = async (text) => {
-  if (!navigator.clipboard) {
-    fallbackCopyTextToClipboard(text);
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(text);
-  } catch (err) {
-    console.warn("Clipboard API failed (likely due to async delay), trying fallback...", err);
-    fallbackCopyTextToClipboard(text);
-  }
-};
-
 
 // --- Traffic Logic ---
 const getTrafficFromCoords = async (start, end) => {
@@ -99,13 +59,17 @@ const getTrafficFromCoords = async (start, end) => {
   return { status: "ตรวจสอบไม่ได้", code: 0 }; 
 };
 
-
 export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
+  
+  // State สำหรับ Report Modal
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [generatedReportText, setGeneratedReportText] = useState("");
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
@@ -237,10 +201,11 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 REPORT GENERATOR WITH MOBILE FALLBACK
+  // 🌟 1. GENERATE REPORT FUNCTION (แค่สร้าง Text แล้วเปิด Modal)
   // -----------------------------------------------------------------------
-  const handleCopyReport = async () => {
+  const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
+    setCopySuccess(false); // Reset success state
     
     try {
       const now = new Date();
@@ -274,7 +239,6 @@ export default function App() {
               });
 
               const results = await Promise.all(segmentPromises);
-
               const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
@@ -291,9 +255,9 @@ export default function App() {
         }
       }
 
-      // 🔥 ใช้ฟังก์ชัน Copy ตัวใหม่ที่รองรับมือถือ
-      await copyToClipboard(report);
-      alert("✅ คัดลอกรายงานเรียบร้อย");
+      // เสร็จแล้วเก็บใส่ State และเปิด Modal
+      setGeneratedReportText(report);
+      setShowReportModal(true);
 
     } catch (e) {
       console.error(e);
@@ -303,13 +267,32 @@ export default function App() {
     }
   };
 
+  // -----------------------------------------------------------------------
+  // 🌟 2. EXECUTE COPY FUNCTION (อันนี้ทำงานใน Modal กดปุ๊บติดปั๊บ)
+  // -----------------------------------------------------------------------
+  const handleCopyText = () => {
+    navigator.clipboard.writeText(generatedReportText).then(() => {
+      setCopySuccess(true);
+      // alert("✅ คัดลอกเรียบร้อย"); // Optional: ไม่ต้อง Alert ก็ได้เพราะมีปุ่มเขียวโชว์
+    }).catch(err => {
+      // Fallback สำหรับเครื่องเก่าจริงๆ
+      const textArea = document.createElement("textarea");
+      textArea.value = generatedReportText;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+      setCopySuccess(true);
+    });
+  };
+
   if (loading) return <SystemLoader />;
   if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* LOADING OVERLAY */}
+      {/* --- LOADING OVERLAY --- */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
@@ -317,9 +300,52 @@ export default function App() {
               <div className="text-center">
                  <h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3>
                  <p className="text-slate-400 text-sm">ระบบกำลังตรวจสอบสภาพจราจรทั่วประเทศ</p>
-                 <p className="text-slate-500 text-xs mt-2">(อาจใช้เวลา 5-10 วินาที)</p>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* --- REPORT RESULT MODAL (พระเอกของเรา) --- */}
+      {showReportModal && (
+        <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
+              <h3 className="text-white font-bold flex items-center gap-2">
+                <ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก
+              </h3>
+              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white p-1">
+                <X size={24}/>
+              </button>
+            </div>
+            
+            {/* Modal Body: Text Area */}
+            <div className="p-4 flex-1">
+              <textarea 
+                className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none"
+                value={generatedReportText}
+                readOnly
+              />
+            </div>
+
+            {/* Modal Footer: Action Button */}
+            <div className="p-4 bg-slate-900 border-t border-slate-700">
+              <button 
+                onClick={handleCopyText}
+                className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${
+                  copySuccess 
+                    ? "bg-green-600 text-white hover:bg-green-500" 
+                    : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"
+                }`}
+              >
+                {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>}
+                {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
+              </button>
+              <p className="text-center text-[10px] text-slate-500 mt-2">
+                *หากปุ่มไม่ทำงาน ให้กดค้างที่ข้อความเพื่อเลือกและคัดลอกเอง
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
@@ -331,14 +357,13 @@ export default function App() {
         </h1>
         <div className="flex items-center gap-3">
              <button 
-                onClick={handleCopyReport} 
-                disabled={isGeneratingReport}
-                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleGenerateReport} 
+                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"
              >
-                <ClipboardCopy size={14} /> {isGeneratingReport ? 'กำลังสร้าง...' : 'คัดลอกรายงาน'}
+                <ClipboardCopy size={14} /> สร้างรายงาน
              </button>
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-                <Filter size={14} /> {showFilters ? 'ซ่อนตัวกรอง' : 'แสดงตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
+                <Filter size={14} /> {showFilters ? 'ซ่อน' : 'ตัวกรอง'} {showFilters ? <ChevronUp size={14}/> : <ChevronDown size={14}/>}
              </button>
              <span className="text-[10px] text-green-500 font-mono flex items-center gap-1"><Activity size={10} className="animate-pulse"/> Live</span>
              <button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /> รีเฟรช</button>
