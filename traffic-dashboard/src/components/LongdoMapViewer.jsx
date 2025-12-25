@@ -2,152 +2,134 @@ import React, { useEffect, useRef, useState } from 'react';
 import { CATEGORY_COLORS, DIVISION_COLORS } from '../constants/config';
 
 const LongdoMapViewer = ({ data, apiKey }) => {
-  const mapRef = useRef(null);
   const mapInstance = useRef(null);
-  const [isLoaded, setIsLoaded] = useState(false);
+  const [status, setStatus] = useState("Waiting for script...");
 
   useEffect(() => {
-    // ฟังก์ชันสำหรับเริ่มสร้างแผนที่
+    // ฟังก์ชันสร้างแผนที่
     const initMap = () => {
-      // ถ้าไม่มี window.longdo แสดงว่า Script ยังไม่มา -> ให้จบฟังก์ชันไปก่อน
-      if (!window.longdo) return;
-      // ถ้ามีแผนที่อยู่แล้ว ไม่ต้องสร้างซ้ำ
-      if (mapInstance.current) return;
+      const mapDiv = document.getElementById('longdo-map-container');
+      
+      if (!window.longdo) {
+        console.log("❌ Window.longdo not found yet");
+        setStatus("Retrying... (Script not ready)");
+        return;
+      }
+      if (!mapDiv) {
+        console.log("❌ Map container div not found");
+        return;
+      }
+      if (mapInstance.current) {
+        console.log("⚠️ Map already initialized");
+        return;
+      }
 
+      console.log("✅ Starting Map Initialization...");
       const longdo = window.longdo;
       
       try {
+        // สร้างแผนที่
         mapInstance.current = new longdo.Map({
-          placeholder: mapRef.current,
+          placeholder: mapDiv,
           zoom: 10,
           lastView: false,
           location: { lon: 100.6, lat: 13.8 },
           language: 'th'
         });
 
-        // เปิด Traffic Layer
+        // เปิด Layer
         mapInstance.current.Layers.add(longdo.Layers.TRAFFIC);
-        
-        // ทำให้แผนที่มืดลงนิดหน่อย (Dark Dim) เพื่อให้เข้ากับ Dashboard
-        mapInstance.current.Layers.add(longdo.Layers.GRAY);
+        mapInstance.current.Layers.add(longdo.Layers.GRAY); // Dark mode-ish
 
-        // ตั้งค่า Event เมื่อแผนที่พร้อม
+        // Event เมื่อแผนที่พร้อม
         mapInstance.current.Event.bind('ready', function() {
-           setIsLoaded(true); // บอก State ว่าโหลดเสร็จแล้ว
-           updateMarkers();   // วาดหมุดทันที
+           console.log("🎉 Map is READY!");
+           setStatus("Ready");
+           updateMarkers(); // วาดหมุด
         });
 
       } catch (error) {
-        console.error("Error initializing Longdo Map:", error);
+        console.error("🔥 Error init map:", error);
+        setStatus(`Error: ${error.message}`);
       }
     };
 
-    // --- LOGIC การโหลด SCRIPT ---
+    // --- เช็ค Script ---
     const existingScript = document.getElementById('longdo-map-script');
-
     if (!existingScript) {
-      // กรณี 1: ยังไม่มี Script ในหน้าเว็บ -> สร้างใหม่
+      console.log("📥 Loading Script...");
       const script = document.createElement('script');
       script.src = `https://api.longdo.com/map/?key=${apiKey}`;
       script.id = 'longdo-map-script';
       document.body.appendChild(script);
       
       script.onload = () => {
-        // เมื่อโหลดเสร็จ ให้รออีกนิดนึงเพื่อให้ object longdo พร้อมใช้งานชัวร์ๆ
+        console.log("📥 Script Loaded. Waiting 500ms...");
         setTimeout(initMap, 500); 
       };
+      script.onerror = () => {
+        setStatus("Failed to load Longdo Script (Check Internet/Key)");
+      };
     } else {
-      // กรณี 2: มี Script อยู่แล้ว (เช่น เปลี่ยนหน้าไปมา) -> เช็คว่า longdo พร้อมไหม
-      if (window.longdo) {
-        initMap();
-      } else {
-        // ถ้ามี Tag Script แต่ window.longdo ยังไม่มา -> ให้วนเช็คทุก 100ms
-        const checkInterval = setInterval(() => {
-          if (window.longdo) {
-            clearInterval(checkInterval);
-            initMap();
-          }
-        }, 100);
-      }
+      console.log("📦 Script exists. Checking readiness...");
+      // รอจนกว่า longdo object จะมา
+      const checkInterval = setInterval(() => {
+        if (window.longdo) {
+          clearInterval(checkInterval);
+          initMap();
+        }
+      }, 500);
     }
 
-    // Cleanup function
-    return () => {
-       // ไม่ต้อง destroy map เพราะ Longdo จัดการตัวเองได้ค่อนข้างดี 
-       // หรือถ้าจะ clear: mapInstance.current = null;
-    };
+    return () => {};
   }, [apiKey]);
 
-  // ฟังก์ชันวาดหมุด (แยกออกมาเพื่อให้เรียกใช้ได้เมื่อ data เปลี่ยน)
+  // ฟังก์ชันวาดหมุด
   const updateMarkers = () => {
     if (!mapInstance.current || !window.longdo) return;
-    const longdo = window.longdo;
-    
     try {
-      mapInstance.current.Overlays.clear(); // ลบหมุดเก่า
+      const longdo = window.longdo;
+      mapInstance.current.Overlays.clear();
 
       data.forEach(item => {
         if (item.lat && item.lng) {
-          // กำหนดสีหมุด
-          const color = item.category.includes('อุบัติเหตุ') 
-                        ? '#FF0000' 
-                        : (CATEGORY_COLORS[item.category] || '#94a3b8');
-
-          // HTML Marker Style
+          const color = item.category.includes('อุบัติเหตุ') ? '#FF0000' : (CATEGORY_COLORS[item.category] || '#94a3b8');
           const markerHtml = `
-            <div style="
-              width: 14px; height: 14px; 
-              background-color: ${color}; 
-              border: 2px solid white; 
-              border-radius: 50%; 
-              box-shadow: 0 0 5px rgba(0,0,0,0.8);
-              cursor: pointer;
-            "></div>
+            <div style="width: 14px; height: 14px; background-color: ${color}; border: 2px solid white; border-radius: 50%; box-shadow: 0 0 5px rgba(0,0,0,0.8); cursor: pointer;"></div>
           `;
-
           const marker = new longdo.Marker(
             { lon: item.lng, lat: item.lat },
             {
               title: item.category,
               icon: { html: markerHtml, offset: { x: 7, y: 7 } },
-              detail: `
-                <div style="color: #000; font-family: 'Sarabun', sans-serif; min-width: 220px;">
-                  <div style="font-weight: bold; color: ${DIVISION_COLORS[item.div] || '#333'}; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin-bottom: 5px;">
-                    กก.${item.div} ส.ทล.${item.st} (${item.time} น.)
-                  </div>
-                  <div style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 2px;">${item.category}</div>
-                  <div style="font-size: 13px; color: #555; margin-bottom: 5px; line-height: 1.4;">${item.detail}</div>
-                  <div style="font-size: 11px; color: #888; background: #f5f5f5; padding: 2px 5px; border-radius: 4px; display: inline-block;">
-                    📍 ทล.${item.road} กม.${item.km} (${item.dir})
-                  </div>
-                </div>
-              `
+              detail: item.detail // ง่ายๆ ไปก่อน
             }
           );
           mapInstance.current.Overlays.add(marker);
         }
       });
     } catch (e) {
-      console.error("Error updating markers:", e);
+      console.error("Marker Error:", e);
     }
   };
 
-  // เมื่อ Data เปลี่ยน ให้วาดหมุดใหม่
   useEffect(() => {
-    if(isLoaded) {
-      updateMarkers();
-    }
-  }, [data, isLoaded]);
+    if(status === 'Ready') updateMarkers();
+  }, [data, status]);
 
   return (
-    <div className="w-full h-full relative bg-slate-900">
-      {/* Loading Indicator (แสดงตอนแผนที่ยังไม่มา) */}
-      {!isLoaded && (
-        <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-xs z-10 bg-slate-800/50">
-          กำลังโหลดแผนที่ Longdo...
+    <div className="w-full h-full relative bg-slate-900" style={{ minHeight: '300px' }}>
+      {/* Debug Status Overlay (จะหายไปเมื่อ Ready) */}
+      {status !== 'Ready' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 z-10 bg-slate-800/80 p-4 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-yellow-500 mb-2"></div>
+          <span className="text-xs font-mono">{status}</span>
+          <span className="text-[10px] text-slate-500 mt-1">Key: {apiKey ? apiKey.substring(0,5)+'...' : 'No Key'}</span>
         </div>
       )}
-      <div id="longdo-map" ref={mapRef} style={{ width: '100%', height: '100%' }} />
+      
+      {/* ใช้ ID แทน Ref เพื่อความชัวร์ */}
+      <div id="longdo-map-container" style={{ width: '100%', height: '100%', minHeight: '300px' }} />
     </div>
   );
 };
