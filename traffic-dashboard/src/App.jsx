@@ -28,15 +28,17 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 // --- CONFIGURATION ---
+// ใส่ Key สำหรับแสดงแผนที่ (Map Viewer)
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// ฟังก์ชันเช็คจราจร (ใช้ Proxy /api/longdo เพื่อแก้ CORS)
+// ฟังก์ชันเช็คจราจร (แก้ไขใหม่: เรียกผ่าน Serverless Function /api/traffic เพื่อแก้ CORS)
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
   
-  // เรียกผ่าน Proxy (ต้องมี vercel.json หรือ vite.config.js รองรับ)
-  const url = `/api/longdo/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${LONGDO_API_KEY}`;
+  // เรียก API ของเราเองที่สร้างไว้ใน folder /api/traffic.js
+  // ไม่ต้องใส่ API Key ตรงนี้ (เพราะใส่ไว้ในไฟล์ api/traffic.js แล้ว)
+  const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
     const res = await fetch(url);
@@ -56,7 +58,7 @@ const getTrafficFromCoords = async (start, end) => {
       return "หนาแน่น/ติดขัด 🔴";
     }
   } catch (err) {
-    console.warn("Traffic API Warning:", err.message); // Log แบบ Warn พอ
+    console.warn("Traffic API Warning:", err.message);
   }
   return "ตรวจสอบไม่ได้"; // กรณี API Error
 };

@@ -1,8 +1,0 @@
-{
-  "rewrites": [
-    {
-      "source": "/api/longdo/:match*",
-      "destination": "https://api.longdo.com/:match*"
-    }
-  ]
-}
