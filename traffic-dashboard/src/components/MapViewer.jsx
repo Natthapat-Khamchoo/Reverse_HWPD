@@ -1,72 +1,82 @@
-import React from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
-import { MapPin } from 'lucide-react';
-import 'leaflet/dist/leaflet.css';
-import { DIVISION_COLORS, CATEGORY_COLORS } from '../constants/config'; // หรือ import จากไฟล์ที่คุณเก็บ
+import React, { useEffect, useRef } from 'react';
+import { CATEGORY_COLORS } from '../constants/config';
 
-const MapViewer = ({ data }) => {
-  return (
-    <MapContainer 
-      center={[13.75, 100.5]} 
-      zoom={6} 
-      style={{ height: '100%', width: '100%', background: '#0f172a' }}
-    >
-      {/* 1. Google Maps Traffic Layer (Darkened via CSS is recommended) */}
-      <TileLayer
-        url="https://{s}.google.com/vt/lyrs=m,traffic&x={x}&y={y}&z={z}"
-        maxZoom={20}
-        subdomains={['mt0', 'mt1', 'mt2', 'mt3']}
-        attribution='&copy; Google Maps'
-      />
+const LongdoMapViewer = ({ data }) => {
+  const mapRef = useRef(null);
+  const mapInstance = useRef(null);
 
-      {/* 2. Markers */}
-      {data.map(item => {
-        // Logic บังคับสี: ถ้า Category มีคำว่า "อุบัติเหตุ" ให้ใช้สีแดงทันที
-        const markerColor = item.category.includes('อุบัติเหตุ') 
-                            ? '#FF0000' 
-                            : (CATEGORY_COLORS[item.category] || '#94A3B8');
+  useEffect(() => {
+    // 1. โหลด Script ของ Longdo Map API
+    const script = document.createElement('script');
+    script.src = `https://api.longdo.com/map/?key=43c345d5dae4db42926bd41ae0b5b0fa`; // ใส่ Key ที่นี่
+    script.id = 'longdo-map-script';
+    document.body.appendChild(script);
 
-        return (
-          <CircleMarker 
-            key={item.id} 
-            center={[item.lat, item.lng]} 
-            radius={6} // ขนาดจุด
-            pathOptions={{ 
-              color: '#fff',       // สีขอบ (ขาว)
-              fillColor: markerColor, // สีพื้นหลัง (แดงสำหรับอุบัติเหตุ)
-              fillOpacity: 0.9,    // ความทึบ
-              weight: 1.5          // ความหนาขอบ
-            }}
-          >
-            <Popup className="digital-popup">
-              <div className="font-sans text-sm min-w-[200px] text-slate-800">
-                <strong className="block mb-2 text-base border-b border-slate-200 pb-1 flex items-center justify-between" style={{ color: DIVISION_COLORS[item.div] }}>
-                  <span>กก.{item.div} ส.ทล.{item.st}</span> 
-                  <span className="text-[10px] text-white px-2 py-0.5 rounded bg-slate-600">
-                    {item.time} น.
-                  </span>
-                </strong>
-                <div className="mb-2">
-                  <div className="text-xs font-bold text-slate-500 mb-1">
-                    {item.category}
-                  </div>
-                  <div className="text-sm font-medium text-slate-800">
-                    {item.detail}
-                  </div>
-                </div>
-                <div className="text-xs text-slate-500 pt-1 border-t border-slate-200 mt-1 flex justify-between items-center">
-                  <span className="flex items-center gap-1">
-                    <MapPin size={10}/> ทล.{item.road} กม.{item.km}
-                  </span>
-                  <span className="font-bold">{item.dir}</span>
-                </div>
-              </div>
-            </Popup>
-          </CircleMarker>
+    script.onload = () => {
+      // 2. เริ่มสร้างแผนที่เมื่อ Script โหลดเสร็จ
+      window.longdo = window.longdo || {};
+      const longdo = window.longdo;
+      
+      mapInstance.current = new longdo.Map({
+        placeholder: mapRef.current,
+        zoom: 10,
+        lastView: false,
+        location: { lon: 100.5, lat: 13.75 }
+      });
+
+      // 3. เปิด Layer จราจร (พระเอกของเรา)
+      mapInstance.current.Layers.add(longdo.Layers.TRAFFIC);
+      
+      // ปรับเป็น Dark Mode (Optional)
+      mapInstance.current.Layers.add(longdo.Layers.GRAY); 
+    };
+
+    return () => {
+      // Cleanup (ถ้าจำเป็น)
+      // document.body.removeChild(script); 
+    }
+  }, []);
+
+  // 4. อัปเดตหมุด (Marker) เมื่อ data เปลี่ยน
+  useEffect(() => {
+    if (!mapInstance.current || !window.longdo) return;
+    const longdo = window.longdo;
+
+    // ลบหมุดเก่าออกให้หมดก่อน
+    mapInstance.current.Overlays.clear();
+
+    // วนลูปสร้างหมุดใหม่
+    data.forEach(item => {
+      if(item.lat && item.lng) {
+        // กำหนดสีตามประเภท
+        const color = item.category.includes('อุบัติเหตุ') ? '#FF0000' : (CATEGORY_COLORS[item.category] || '#999');
+        
+        // สร้าง Pin แบบจุดวงกลม (Custom Html Marker)
+        const markerHtml = `
+          <div style="
+            width: 12px; height: 12px; 
+            background-color: ${color}; 
+            border: 2px solid white; 
+            border-radius: 50%; 
+            box-shadow: 0 0 4px rgba(0,0,0,0.5);
+            cursor: pointer;">
+          </div>`;
+          
+        const marker = new longdo.Marker(
+          { lon: item.lng, lat: item.lat },
+          { 
+            icon: { html: markerHtml, offset: { x: 6, y: 6 } },
+            title: item.category,
+            detail: item.detail 
+          }
         );
-      })}
-    </MapContainer>
-  );
+        mapInstance.current.Overlays.add(marker);
+      }
+    });
+
+  }, [data]);
+
+  return <div ref={mapRef} style={{ width: '100%', height: '100%' }} />;
 };
 
-export default MapViewer;
+export default LongdoMapViewer;
