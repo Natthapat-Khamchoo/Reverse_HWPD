@@ -30,6 +30,10 @@ ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
+// 🔥 ตั้งค่าความถี่ในการอัปเดตอัตโนมัติ (มิลลิวินาที)
+// 60000 = 1 นาที (แนะนำค่านี้เพื่อไม่ให้ Google Sheets บล็อก)
+const AUTO_REFRESH_INTERVAL = 60000;
+
 // --- Helper: Copy Fallback ---
 const fallbackCopyTextToClipboard = (text) => {
   var textArea = document.createElement("textarea");
@@ -49,7 +53,7 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic (Updated Criteria) ---
+// --- Traffic Logic ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -68,47 +72,22 @@ const getTrafficFromCoords = async (start, end) => {
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
-      // คำนวณ Speed (km/h)
       const speed = distanceKm / timeHour; 
 
-      let result = {
-        code: 0,
-        status: ""
-      };
+      let result = { code: 0, status: "" };
 
-      // 🎯 New Grading Logic (เกณฑ์ใหม่)
-      // 1. คล่องตัว: > 80
-      if (speed > 80) { 
-          result.status = "คล่องตัว"; 
-          result.code = 1; 
-      }
-      // 2. หนาแน่น: 40 - 80
-      else if (speed >= 40) { 
-          result.status = "หนาแน่น";
-          result.code = 2; 
-      }
-      // 3. ติดขัด: 20 - 40
-      else if (speed >= 20) { 
-          result.status = "ติดขัด";
-          result.code = 3; 
-      }
-      // 4. ติดขัดมาก: 10 - 20
-      else if (speed >= 10) { 
-          result.status = "ติดขัดมาก"; 
-          result.code = 4; 
-      }
-      // 5. หยุดนิ่ง: 0 - 10
-      else { 
-          result.status = "หยุดนิ่ง"; 
-          result.code = 5; 
-      }
+      // Grading Criteria
+      if (speed > 80) { result.status = "คล่องตัว"; result.code = 1; }
+      else if (speed >= 40) { result.status = "หนาแน่น"; result.code = 2; }
+      else if (speed >= 20) { result.status = "ติดขัด"; result.code = 3; }
+      else if (speed >= 10) { result.status = "ติดขัดมาก"; result.code = 4; }
+      else { result.status = "หยุดนิ่ง"; result.code = 5; }
 
       return result;
     }
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
   }
-  // กรณี API Error หรือหาเส้นทางไม่ได้ = ปิดถนน
   return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0 }; 
 };
 
@@ -118,6 +97,9 @@ export default function App() {
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   
+  // เพิ่ม State เพื่อนับถอยหลัง (Optional: เพื่อให้รู้ว่ายังทำงานอยู่)
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
   // State Report
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -149,25 +131,55 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
-  // Fetch Data
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true); setError(false);
-      try {
-        const [resTraffic, resEnforce, resSafety] = await Promise.all([
-             fetch(SHEET_TRAFFIC_URL).then(r => r.text()),
-             fetch(SHEET_ENFORCE_URL).then(r => r.text()),
-             fetch(SHEET_SAFETY_URL).then(r => r.text())
-        ]);
-        const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
-        const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
-        const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
-        setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
-      } catch (err) { console.error(err); setError(true); } 
-      finally { setTimeout(() => setLoading(false), 1200); }
-    };
-    fetchData();
+  // -----------------------------------------------------------------------
+  // 🔄 FETCH DATA LOGIC (ปรับปรุงใหม่ รองรับ Auto Refresh)
+  // -----------------------------------------------------------------------
+  
+  // สร้างฟังก์ชัน fetchData แยกออกมา และใช้ useCallback เพื่อให้เรียกซ้ำได้
+  // isBackground = true แปลว่าเป็นการอัปเดตอัตโนมัติ (ไม่ต้องโชว์ Loading เต็มจอ)
+  const fetchData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true); // ถ้าไม่ใช่ Auto Refresh ให้หมุนติ้วๆ
+    setError(false);
+    
+    try {
+      const timestamp = new Date().getTime(); // ใส่ timestamp เพื่อแก้ cache ของ browser
+      const [resTraffic, resEnforce, resSafety] = await Promise.all([
+           fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
+           fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
+           fetch(`${SHEET_SAFETY_URL}&t=${timestamp}`).then(r => r.text())
+      ]);
+      const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
+      const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
+      const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
+      
+      setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
+      setLastUpdated(new Date()); // อัปเดตเวลาล่าสุด
+
+    } catch (err) { 
+      console.error(err); 
+      setError(true); 
+    } finally { 
+      if (!isBackground) setTimeout(() => setLoading(false), 800); 
+    }
   }, []);
+
+  // Effect หลัก: เรียก fetchData ครั้งแรก และตั้งเวลา Loop
+  useEffect(() => {
+    fetchData(false); // เรียกครั้งแรก (Show Loading)
+
+    const intervalId = setInterval(() => {
+      //console.log("Auto refreshing data...");
+      fetchData(true); // เรียกตามรอบ (Silent Update)
+    }, AUTO_REFRESH_INTERVAL);
+
+    // Cleanup function เมื่อปิดหน้าเว็บ
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
+
+
+  // -----------------------------------------------------------------------
+  // Data Processing (Memoized)
+  // -----------------------------------------------------------------------
 
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
@@ -254,9 +266,7 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // -----------------------------------------------------------------------
-  // 🌟 GENERATE REPORT
-  // -----------------------------------------------------------------------
+  // --- Report Logic ---
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
@@ -272,7 +282,6 @@ export default function App() {
 
       for (const region of TRAFFIC_DATA) {
         report += `${region.region}\n`;
-        
         for (const road of region.roads) {
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
@@ -291,38 +300,19 @@ export default function App() {
               const segmentPromises = road.segments.map(async (seg) => {
                   let start = seg.start;
                   let end = seg.end;
-                  if (reportDirection === 'inbound') {
-                      start = seg.end;
-                      end = seg.start;
-                  }
+                  if (reportDirection === 'inbound') { start = seg.end; end = seg.start; }
                   const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
 
               const results = await Promise.all(segmentPromises);
-
-              // 🎯 Logic: รายงานตาม Code
-              // Code 1 = คล่องตัว (>80)
-              // Code 2 = หนาแน่น (40-80)
-              // Code 3 = ติดขัด (20-40)
-              // Code 4 = ติดขัดมาก (10-20)
-              // Code 5 = หยุดนิ่ง (0-10)
-              
-              const problematicSegments = results.filter(r => r.code >= 2); // เอาตั้งแต่หนาแน่นขึ้นไป
+              const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
-                  // รายงานชื่อช่วง + สถานะ
-                  finalStatus = problematicSegments.map(p => {
-                      return `${p.label} ${p.status}`;
-                  }).join(',\n   • '); 
-
-                  if (problematicSegments.length > 1) {
-                      finalStatus = "\n   • " + finalStatus;
-                  }
-
+                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(',\n   • '); 
+                  if (problematicSegments.length > 1) finalStatus = "\n   • " + finalStatus;
                   if (errorSegments.length > 0) finalStatus += " (บางช่วงตรวจสอบไม่ได้/ปิดถนน)";
-
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
@@ -421,7 +411,12 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-2">
-             <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
+             <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 items-center gap-2">
+                {/* 🔄 Auto Refresh Indicator */}
+                <span className="text-[10px] text-slate-500 hidden sm:block">
+                  Updated: {lastUpdated.toLocaleTimeString('th-TH')}
+                </span>
+                
                 <button onClick={() => setReportDirection('outbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาออก</button>
                 <button onClick={() => setReportDirection('inbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาเข้า</button>
              </div>
@@ -431,7 +426,8 @@ export default function App() {
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} />
              </button>
-             <button onClick={() => window.location.reload()} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /></button>
+             {/* 🔄 ปุ่ม Refresh แบบ Manual เรียก fetchData() แทน reload() */}
+             <button onClick={() => fetchData(false)} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /></button>
         </div>
       </div>
 
@@ -498,7 +494,7 @@ export default function App() {
          </div>
       </div>
 
-      {/* Log List (อยู่บน Trend Chart) */}
+      {/* Log List (บน) */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden mb-4">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด (Log)</h3>
@@ -555,7 +551,7 @@ export default function App() {
              </div>
       </div>
 
-      {/* Trend Chart (ล่างสุด) */}
+      {/* Trend Chart (ล่าง) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
