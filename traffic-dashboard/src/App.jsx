@@ -3,8 +3,7 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle,
-  ArrowRightLeft // ไอคอนสำหรับสลับทิศทาง
+  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -30,7 +29,26 @@ ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// --- Traffic Logic ---
+// --- Helper: Copy Fallback ---
+const fallbackCopyTextToClipboard = (text) => {
+  var textArea = document.createElement("textarea");
+  textArea.value = text;
+  textArea.style.top = "0";
+  textArea.style.left = "0";
+  textArea.style.position = "fixed";
+  document.body.appendChild(textArea);
+  textArea.focus();
+  textArea.select();
+  try { document.execCommand('copy'); } catch (err) { console.error('Fallback copy failed', err); }
+  document.body.removeChild(textArea);
+};
+
+const copyToClipboard = async (text) => {
+  if (!navigator.clipboard) { fallbackCopyTextToClipboard(text); return; }
+  try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
+};
+
+// --- Traffic Logic (ปรับเกณฑ์ตามที่ขอ) ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -50,10 +68,24 @@ const getTrafficFromCoords = async (start, end) => {
 
       const speed = distanceKm / timeHour; 
 
-      // ปรับเกณฑ์ความเร็วตามความเหมาะสม
-      if (speed >= 40) return { status: "คล่องตัว", code: 1 };
-      if (speed >= 20) return { status: "ชะลอตัว", code: 2 };
-      return { status: "หนาแน่น/ติดขัด 🔴", code: 3 };
+      // --- เกณฑ์ใหม่ตามที่กำหนด ---
+      // Code 1 = ดี (ไม่แสดงในรายงานสรุป)
+      // Code >= 2 = เริ่มมีปัญหา (แสดงในรายงาน)
+
+      // 5. 80+ : คล่องตัว
+      if (speed >= 80) return { status: "คล่องตัว (ทำความเร็วได้)", code: 1 };
+      
+      // 4. 40-80 : เคลื่อนตัวได้ดี
+      if (speed >= 40) return { status: "เคลื่อนตัวได้ดี", code: 1 };
+      
+      // 3. 20-40 : ชะลอตัวเคลื่อนตัวได้ดี
+      if (speed >= 20) return { status: "ชะลอตัวเคลื่อนตัวได้ดี", code: 2 };
+      
+      // 2. 10-20 : หนาแน่นเคลื่อนตัวได้ช้า
+      if (speed >= 10) return { status: "หนาแน่นเคลื่อนตัวได้ช้า", code: 3 };
+      
+      // 1. 0-10 : หยุดนิ่งเคลื่อนตัวได้ช้า
+      return { status: "หยุดนิ่งเคลื่อนตัวได้ช้า 🔴", code: 4 };
     }
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
@@ -67,14 +99,12 @@ export default function App() {
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   
-  // State สำหรับ Report Modal
+  // State Report
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
-
-  // 🔥 State ใหม่: เลือกทิศทาง (outbound = ขาออก, inbound = ขาเข้า)
-  const [reportDirection, setReportDirection] = useState('outbound');
+  const [reportDirection, setReportDirection] = useState('outbound'); // outbound | inbound
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
@@ -206,7 +236,7 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 GENERATE REPORT (รองรับขาเข้า/ขาออก)
+  // 🌟 GENERATE REPORT
   // -----------------------------------------------------------------------
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
@@ -217,17 +247,14 @@ export default function App() {
       const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
       const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
       const todayFilterStr = getThaiDateStr(now);
-      
-      // 🔥 ปรับหัวข้อตามทิศทาง
       const directionText = reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)';
+      
       let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
 
       for (const region of TRAFFIC_DATA) {
         report += `${region.region}\n`;
         
         for (const road of region.roads) {
-          // 1. Manual Log (เช็คว่ามีรายงาน Manual ที่ตรงกับทิศทางไหม - อันนี้อาจจะต้องปรับในอนาคตถ้า Manual Log มีทิศทาง)
-          // เบื้องต้นดึงมาแสดงก่อน
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
               d.date === todayFilterStr &&
@@ -242,23 +269,24 @@ export default function App() {
                   return `${prefix}${i.detail}`;
               }).join(', ');
           } else {
-              // 2. API Check
               const segmentPromises = road.segments.map(async (seg) => {
-                  // 🔥 Logic สลับทิศทาง
+                  // Switch direction logic
                   let start = seg.start;
                   let end = seg.end;
-                  
                   if (reportDirection === 'inbound') {
-                      // ถ้าขาเข้า ให้สลับ Start <-> End (วิ่งย้อนกลับ)
                       start = seg.end;
                       end = seg.start;
                   }
-
                   const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
 
               const results = await Promise.all(segmentPromises);
+
+              // 🎯 Logic สรุป: โชว์เฉพาะจุดที่มีปัญหา (Code 2, 3, 4)
+              // Code 2 = 20-40 (ชะลอตัว)
+              // Code 3 = 10-20 (หนาแน่น)
+              // Code 4 = 0-10 (หยุดนิ่ง)
               const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
@@ -268,7 +296,8 @@ export default function App() {
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
-                  finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+                  // Code 1 (40+) ถือว่าดีหมด
+                  finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี/คล่องตัวตลอดสาย";
               }
           }
           report += `- ${road.name} : ${finalStatus}\n`;
@@ -319,7 +348,7 @@ export default function App() {
         </div>
       )}
 
-      {/* REPORT RESULT MODAL */}
+      {/* REPORT MODAL */}
       {showReportModal && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
@@ -362,29 +391,13 @@ export default function App() {
            <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
         </h1>
         <div className="flex items-center gap-2">
-             {/* 🔥 ปุ่มเลือกทิศทาง */}
              <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700">
-                <button 
-                  onClick={() => setReportDirection('outbound')}
-                  className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                >
-                  ขาออก
-                </button>
-                <button 
-                  onClick={() => setReportDirection('inbound')}
-                  className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                >
-                  ขาเข้า
-                </button>
+                <button onClick={() => setReportDirection('outbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาออก</button>
+                <button onClick={() => setReportDirection('inbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาเข้า</button>
              </div>
-
-             <button 
-                onClick={handleGenerateReport} 
-                className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"
-             >
+             <button onClick={handleGenerateReport} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm">
                 <ClipboardCopy size={14} /> สร้างรายงาน
              </button>
-
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} />
              </button>
@@ -392,7 +405,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Control Panel (เหมือนเดิม) */}
+      {/* Control Panel */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
