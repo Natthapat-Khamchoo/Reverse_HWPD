@@ -29,9 +29,6 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
-
-// 🔥 ตั้งค่าความถี่ในการอัปเดตอัตโนมัติ (มิลลิวินาที)
-// 60000 = 1 นาที (แนะนำค่านี้เพื่อไม่ให้ Google Sheets บล็อก)
 const AUTO_REFRESH_INTERVAL = 60000;
 
 // --- Helper: Copy Fallback ---
@@ -53,7 +50,8 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic ---
+// --- Traffic Logic (Adjusted Thresholds) ---
+// ปรับเกณฑ์ใหม่ให้สมจริงกับค่า Average Speed จาก API
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -72,16 +70,32 @@ const getTrafficFromCoords = async (start, end) => {
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
+      // ความเร็วเฉลี่ย (Average Speed)
       const speed = distanceKm / timeHour; 
 
       let result = { code: 0, status: "" };
 
-      // Grading Criteria
-      if (speed > 80) { result.status = "คล่องตัว"; result.code = 1; }
-      else if (speed >= 40) { result.status = "หนาแน่น"; result.code = 2; }
-      else if (speed >= 20) { result.status = "ติดขัด"; result.code = 3; }
-      else if (speed >= 10) { result.status = "ติดขัดมาก"; result.code = 4; }
-      else { result.status = "หยุดนิ่ง"; result.code = 5; }
+      // 🎯 New Logic: ปรับเกณฑ์ให้ผ่อนคลายลง (Relaxed Thresholds)
+      // 1. คล่องตัว: >= 60 km/h (เดิม 80 สูงไปสำหรับ Avg)
+      if (speed >= 60) { 
+          result.status = "คล่องตัว"; 
+          result.code = 1; 
+      }
+      // 2. หนาแน่น/ชะลอตัว: 35 - 60 km/h
+      else if (speed >= 35) { 
+          result.status = "หนาแน่น/ชะลอตัว";
+          result.code = 2; 
+      }
+      // 3. ติดขัด: 15 - 35 km/h
+      else if (speed >= 15) { 
+          result.status = "ติดขัด";
+          result.code = 3; 
+      }
+      // 4. ติดขัดมาก: 0 - 15 km/h
+      else { 
+          result.status = "ติดขัดมาก/หยุดนิ่ง 🔴"; 
+          result.code = 4; 
+      }
 
       return result;
     }
@@ -96,18 +110,14 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
-  
-  // เพิ่ม State เพื่อนับถอยหลัง (Optional: เพื่อให้รู้ว่ายังทำงานอยู่)
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
-  // State Report
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
   const [reportDirection, setReportDirection] = useState('outbound'); 
 
-  // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(getThaiDateStr());
   const [customEnd, setCustomEnd] = useState(getThaiDateStr());
@@ -116,12 +126,10 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
-  // Trend Chart Controls
   const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
   const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
   const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
 
-  // Date Logic
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -131,18 +139,11 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
-  // -----------------------------------------------------------------------
-  // 🔄 FETCH DATA LOGIC (ปรับปรุงใหม่ รองรับ Auto Refresh)
-  // -----------------------------------------------------------------------
-  
-  // สร้างฟังก์ชัน fetchData แยกออกมา และใช้ useCallback เพื่อให้เรียกซ้ำได้
-  // isBackground = true แปลว่าเป็นการอัปเดตอัตโนมัติ (ไม่ต้องโชว์ Loading เต็มจอ)
   const fetchData = useCallback(async (isBackground = false) => {
-    if (!isBackground) setLoading(true); // ถ้าไม่ใช่ Auto Refresh ให้หมุนติ้วๆ
+    if (!isBackground) setLoading(true);
     setError(false);
-    
     try {
-      const timestamp = new Date().getTime(); // ใส่ timestamp เพื่อแก้ cache ของ browser
+      const timestamp = new Date().getTime();
       const [resTraffic, resEnforce, resSafety] = await Promise.all([
            fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
            fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
@@ -151,35 +152,17 @@ export default function App() {
       const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
       const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
       const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
-      
       setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
-      setLastUpdated(new Date()); // อัปเดตเวลาล่าสุด
-
-    } catch (err) { 
-      console.error(err); 
-      setError(true); 
-    } finally { 
-      if (!isBackground) setTimeout(() => setLoading(false), 800); 
-    }
+      setLastUpdated(new Date());
+    } catch (err) { console.error(err); setError(true); } 
+    finally { if (!isBackground) setTimeout(() => setLoading(false), 800); }
   }, []);
 
-  // Effect หลัก: เรียก fetchData ครั้งแรก และตั้งเวลา Loop
   useEffect(() => {
-    fetchData(false); // เรียกครั้งแรก (Show Loading)
-
-    const intervalId = setInterval(() => {
-      //console.log("Auto refreshing data...");
-      fetchData(true); // เรียกตามรอบ (Silent Update)
-    }, AUTO_REFRESH_INTERVAL);
-
-    // Cleanup function เมื่อปิดหน้าเว็บ
+    fetchData(false);
+    const intervalId = setInterval(() => fetchData(true), AUTO_REFRESH_INTERVAL);
     return () => clearInterval(intervalId);
   }, [fetchData]);
-
-
-  // -----------------------------------------------------------------------
-  // Data Processing (Memoized)
-  // -----------------------------------------------------------------------
 
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
@@ -312,7 +295,7 @@ export default function App() {
               if (problematicSegments.length > 0) {
                   finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(',\n   • '); 
                   if (problematicSegments.length > 1) finalStatus = "\n   • " + finalStatus;
-                  if (errorSegments.length > 0) finalStatus += " (บางช่วงตรวจสอบไม่ได้/ปิดถนน)";
+                  if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
@@ -354,7 +337,6 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* LOADING OVERLAY */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
@@ -368,7 +350,6 @@ export default function App() {
         </div>
       )}
 
-      {/* REPORT MODAL */}
       {showReportModal && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
@@ -388,14 +369,7 @@ export default function App() {
               />
             </div>
             <div className="p-4 bg-slate-900 border-t border-slate-700">
-              <button 
-                onClick={handleCopyText}
-                className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${
-                  copySuccess 
-                    ? "bg-green-600 text-white hover:bg-green-500" 
-                    : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"
-                }`}
-              >
+              <button onClick={handleCopyText} className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${copySuccess ? "bg-green-600 text-white hover:bg-green-500" : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"}`}>
                 {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>}
                 {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
               </button>
@@ -404,7 +378,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
            <div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div>
@@ -412,11 +385,7 @@ export default function App() {
         </h1>
         <div className="flex items-center gap-2">
              <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 items-center gap-2">
-                {/* 🔄 Auto Refresh Indicator */}
-                <span className="text-[10px] text-slate-500 hidden sm:block">
-                  Updated: {lastUpdated.toLocaleTimeString('th-TH')}
-                </span>
-                
+                <span className="text-[10px] text-slate-500 hidden sm:block">Updated: {lastUpdated.toLocaleTimeString('th-TH')}</span>
                 <button onClick={() => setReportDirection('outbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาออก</button>
                 <button onClick={() => setReportDirection('inbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาเข้า</button>
              </div>
@@ -426,12 +395,10 @@ export default function App() {
              <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
                 <Filter size={14} />
              </button>
-             {/* 🔄 ปุ่ม Refresh แบบ Manual เรียก fetchData() แทน reload() */}
              <button onClick={() => fetchData(false)} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /></button>
         </div>
       </div>
 
-      {/* Control Panel */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
@@ -448,7 +415,6 @@ export default function App() {
         </div>
       )}
 
-      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <KPI_Card title="เหตุการณ์ทั้งหมด" value={visualData.length} subtext="กก.8 (เฉพาะอุบัติเหตุ)" icon={ListChecks} accentColor="bg-slate-200" />
         <KPI_Card title="อุบัติเหตุ (กก.8)" value={visualData.filter(d => d.category === 'อุบัติเหตุ').length} subtext="รวมทั้งหมด" icon={CarFront} accentColor="bg-red-500" />
@@ -457,7 +423,6 @@ export default function App() {
         <KPI_Card title="ปิดช่องทางพิเศษ" value={visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
 
-      {/* Map & Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-auto lg:h-[450px]">
          <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col h-[350px] lg:h-full">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
@@ -494,7 +459,6 @@ export default function App() {
          </div>
       </div>
 
-      {/* Log List (บน) */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden mb-4">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด (Log)</h3>
@@ -551,7 +515,6 @@ export default function App() {
              </div>
       </div>
 
-      {/* Trend Chart (ล่าง) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
