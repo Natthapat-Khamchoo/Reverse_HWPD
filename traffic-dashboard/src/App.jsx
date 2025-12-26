@@ -49,7 +49,7 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic (Simplified: ใช้ Speed เพื่อคัดแยกสถานะเท่านั้น ไม่แสดงตัวเลข) ---
+// --- Traffic Logic ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -68,7 +68,6 @@ const getTrafficFromCoords = async (start, end) => {
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
-      // คำนวณ Speed เพื่อใช้เป็นเกณฑ์ภายใน (Internal Threshold) เท่านั้น
       const speed = distanceKm / timeHour; 
 
       let result = {
@@ -76,7 +75,7 @@ const getTrafficFromCoords = async (start, end) => {
         status: ""
       };
 
-      // --- Simple Grading (เน้นข้อความกว้างๆ) ---
+      // --- Simple Grading ---
       if (speed >= 80) { 
           result.status = "คล่องตัว"; 
           result.code = 1; 
@@ -248,9 +247,7 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // -----------------------------------------------------------------------
-  // 🌟 GENERATE REPORT (Simple Mode: No Calculation Display)
-  // -----------------------------------------------------------------------
+  // --- Report Logic ---
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
@@ -266,7 +263,6 @@ export default function App() {
 
       for (const region of TRAFFIC_DATA) {
         report += `${region.region}\n`;
-        
         for (const road of region.roads) {
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
@@ -285,32 +281,19 @@ export default function App() {
               const segmentPromises = road.segments.map(async (seg) => {
                   let start = seg.start;
                   let end = seg.end;
-                  if (reportDirection === 'inbound') {
-                      start = seg.end;
-                      end = seg.start;
-                  }
+                  if (reportDirection === 'inbound') { start = seg.end; end = seg.start; }
                   const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
 
               const results = await Promise.all(segmentPromises);
-
-              // 🎯 Logic: รายงานตามจริงจากสถานะพื้นฐาน (ไม่แสดงตัวเลข)
               const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
-                  // รายงานแค่ Label + Status (สั้น กระชับ)
-                  finalStatus = problematicSegments.map(p => {
-                      return `${p.label} ${p.status}`;
-                  }).join(',\n   • '); 
-
-                  if (problematicSegments.length > 1) {
-                      finalStatus = "\n   • " + finalStatus;
-                  }
-
+                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(',\n   • '); 
+                  if (problematicSegments.length > 1) finalStatus = "\n   • " + finalStatus;
                   if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
-
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
@@ -486,35 +469,8 @@ export default function App() {
          </div>
       </div>
 
-      {/* Trend Chart */}
-      <div className="grid grid-cols-1 mb-4">
-        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
-            <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <TrendingUp size={16} className="text-green-400"/> เปรียบเทียบรายวัน (อุบัติเหตุเฉพาะ กก.8)
-                </h3>
-                <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span>
-                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} />
-                    <span className="text-slate-500 text-xs">-</span>
-                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} />
-                </div>
-            </div>
-            <div className="h-[240px] w-full relative">
-                 <Bar 
-                    data={trendChartConfig} 
-                    options={{
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } },
-                        scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } }
-                    }}
-                 />
-            </div>
-        </div>
-      </div>
-
-      {/* Log List */}
-      <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
+      {/* 🚀 Log List (สลับขึ้นมาอยู่บน Trend Chart แล้ว) */}
+      <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden mb-4">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด (Log)</h3>
                 <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">แสดงทั้งหมด {logData.length} รายการ</span>
@@ -569,6 +525,34 @@ export default function App() {
                 </table>
              </div>
       </div>
+
+      {/* 🚀 Trend Chart (ลงมาอยู่ด้านล่างสุด) */}
+      <div className="grid grid-cols-1 mb-4">
+        <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
+            <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <TrendingUp size={16} className="text-green-400"/> เปรียบเทียบรายวัน (อุบัติเหตุเฉพาะ กก.8)
+                </h3>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span>
+                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} />
+                    <span className="text-slate-500 text-xs">-</span>
+                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} />
+                </div>
+            </div>
+            <div className="h-[240px] w-full relative">
+                 <Bar 
+                    data={trendChartConfig} 
+                    options={{
+                        responsive: true, maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } },
+                        scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } }
+                    }}
+                 />
+            </div>
+        </div>
+      </div>
+      
     </div>
   );
 }
