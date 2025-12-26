@@ -49,7 +49,7 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic ---
+// --- Traffic Logic (Updated Criteria) ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -68,6 +68,7 @@ const getTrafficFromCoords = async (start, end) => {
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
+      // คำนวณ Speed (km/h)
       const speed = distanceKm / timeHour; 
 
       let result = {
@@ -75,26 +76,31 @@ const getTrafficFromCoords = async (start, end) => {
         status: ""
       };
 
-      // --- Simple Grading ---
-      if (speed >= 80) { 
+      // 🎯 New Grading Logic (เกณฑ์ใหม่)
+      // 1. คล่องตัว: > 80
+      if (speed > 80) { 
           result.status = "คล่องตัว"; 
           result.code = 1; 
       }
+      // 2. หนาแน่น: 40 - 80
       else if (speed >= 40) { 
-          result.status = "เคลื่อนตัวได้ดี";
-          result.code = 1; 
-      }
-      else if (speed >= 20) { 
-          result.status = "ชะลอตัว";
+          result.status = "หนาแน่น";
           result.code = 2; 
       }
-      else if (speed >= 10) { 
-          result.status = "หนาแน่น"; 
+      // 3. ติดขัด: 20 - 40
+      else if (speed >= 20) { 
+          result.status = "ติดขัด";
           result.code = 3; 
       }
-      else { 
-          result.status = "หนาแน่น/หยุดนิ่ง 🔴"; 
+      // 4. ติดขัดมาก: 10 - 20
+      else if (speed >= 10) { 
+          result.status = "ติดขัดมาก"; 
           result.code = 4; 
+      }
+      // 5. หยุดนิ่ง: 0 - 10
+      else { 
+          result.status = "หยุดนิ่ง"; 
+          result.code = 5; 
       }
 
       return result;
@@ -102,7 +108,8 @@ const getTrafficFromCoords = async (start, end) => {
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
   }
-  return { status: "ตรวจสอบไม่ได้", code: 0 }; 
+  // กรณี API Error หรือหาเส้นทางไม่ได้ = ปิดถนน
+  return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0 }; 
 };
 
 export default function App() {
@@ -247,7 +254,9 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // --- Report Logic ---
+  // -----------------------------------------------------------------------
+  // 🌟 GENERATE REPORT
+  // -----------------------------------------------------------------------
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
@@ -263,6 +272,7 @@ export default function App() {
 
       for (const region of TRAFFIC_DATA) {
         report += `${region.region}\n`;
+        
         for (const road of region.roads) {
           const manualIssues = rawData.filter(d => 
               d.road === road.id && 
@@ -281,23 +291,42 @@ export default function App() {
               const segmentPromises = road.segments.map(async (seg) => {
                   let start = seg.start;
                   let end = seg.end;
-                  if (reportDirection === 'inbound') { start = seg.end; end = seg.start; }
+                  if (reportDirection === 'inbound') {
+                      start = seg.end;
+                      end = seg.start;
+                  }
                   const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
 
               const results = await Promise.all(segmentPromises);
-              const problematicSegments = results.filter(r => r.code >= 2);
+
+              // 🎯 Logic: รายงานตาม Code
+              // Code 1 = คล่องตัว (>80)
+              // Code 2 = หนาแน่น (40-80)
+              // Code 3 = ติดขัด (20-40)
+              // Code 4 = ติดขัดมาก (10-20)
+              // Code 5 = หยุดนิ่ง (0-10)
+              
+              const problematicSegments = results.filter(r => r.code >= 2); // เอาตั้งแต่หนาแน่นขึ้นไป
               const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
-                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(',\n   • '); 
-                  if (problematicSegments.length > 1) finalStatus = "\n   • " + finalStatus;
-                  if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
+                  // รายงานชื่อช่วง + สถานะ
+                  finalStatus = problematicSegments.map(p => {
+                      return `${p.label} ${p.status}`;
+                  }).join(',\n   • '); 
+
+                  if (problematicSegments.length > 1) {
+                      finalStatus = "\n   • " + finalStatus;
+                  }
+
+                  if (errorSegments.length > 0) finalStatus += " (บางช่วงตรวจสอบไม่ได้/ปิดถนน)";
+
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
-                  finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี/คล่องตัวตลอดสาย";
+                  finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
               }
           }
           report += `- ${road.name} : ${finalStatus}\n`;
@@ -469,7 +498,7 @@ export default function App() {
          </div>
       </div>
 
-      {/* 🚀 Log List (สลับขึ้นมาอยู่บน Trend Chart แล้ว) */}
+      {/* Log List (อยู่บน Trend Chart) */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden mb-4">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ล่าสุด (Log)</h3>
@@ -526,7 +555,7 @@ export default function App() {
              </div>
       </div>
 
-      {/* 🚀 Trend Chart (ลงมาอยู่ด้านล่างสุด) */}
+      {/* Trend Chart (ล่างสุด) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
