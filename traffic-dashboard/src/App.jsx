@@ -3,7 +3,8 @@ import {
   RotateCcw, ListChecks, Monitor, Calendar, Siren, 
   CarFront, ShieldAlert, StopCircle, Activity, 
   ArrowRightCircle, Wine, Filter, ChevronUp, ChevronDown, Map as MapIcon,
-  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle
+  TrendingUp, MousePointerClick, ClipboardCopy, Loader2, X, Copy, CheckCircle,
+  ArrowRightLeft
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
@@ -29,7 +30,7 @@ ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
 
-// --- Helper: Copy Fallback ---
+// --- Helper: Copy Fallback (แก้ปัญหา Copy บนมือถือ) ---
 const fallbackCopyTextToClipboard = (text) => {
   var textArea = document.createElement("textarea");
   textArea.value = text;
@@ -48,7 +49,7 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic (ปรับเกณฑ์ตามที่ขอ) ---
+// --- Traffic Logic (อัปเกรด: คำนวณ Delay & Time) ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -62,30 +63,42 @@ const getTrafficFromCoords = async (start, end) => {
     if (json && json.data && json.data.length > 0) {
       const route = json.data[0];
       const distanceKm = route.distance / 1000;
-      const timeHour = route.interval / 3600;
+      const timeSec = route.interval; // เวลาเดินทางจริง (วินาที)
+      const timeHour = timeSec / 3600;
+      const timeMin = Math.round(timeSec / 60); 
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
       const speed = distanceKm / timeHour; 
 
-      // --- เกณฑ์ใหม่ตามที่กำหนด ---
-      // Code 1 = ดี (ไม่แสดงในรายงานสรุป)
-      // Code >= 2 = เริ่มมีปัญหา (แสดงในรายงาน)
+      // --- คำนวณ Delay (เทียบกับความเร็ว Ideal 90 km/h) ---
+      // เวลาที่ควรจะเป็น (นาที)
+      const idealTimeMin = Math.round((distanceKm / 90) * 60);
+      // เวลาที่เสียไป (นาที)
+      const delayMin = timeMin - idealTimeMin;
 
-      // 5. 80+ : คล่องตัว
-      if (speed >= 80) return { status: "คล่องตัว (ทำความเร็วได้)", code: 1 };
-      
-      // 4. 40-80 : เคลื่อนตัวได้ดี
-      if (speed >= 40) return { status: "เคลื่อนตัวได้ดี", code: 1 };
-      
+      let result = {
+        speed: Math.round(speed),
+        timeMin: timeMin,
+        delayMin: delayMin > 0 ? delayMin : 0,
+        distance: distanceKm.toFixed(1),
+        code: 0,
+        status: ""
+      };
+
+      // --- เกณฑ์การตัดเกรด (ใหม่) ---
+      // 1. > 80 : คล่องตัว
+      if (speed >= 80) { result.status = "คล่องตัว (ทำความเร็วได้)"; result.code = 1; }
+      // 2. 40-80 : เคลื่อนตัวได้ดี
+      else if (speed >= 40) { result.status = "เคลื่อนตัวได้ดี"; result.code = 1; }
       // 3. 20-40 : ชะลอตัวเคลื่อนตัวได้ดี
-      if (speed >= 20) return { status: "ชะลอตัวเคลื่อนตัวได้ดี", code: 2 };
-      
-      // 2. 10-20 : หนาแน่นเคลื่อนตัวได้ช้า
-      if (speed >= 10) return { status: "หนาแน่นเคลื่อนตัวได้ช้า", code: 3 };
-      
-      // 1. 0-10 : หยุดนิ่งเคลื่อนตัวได้ช้า
-      return { status: "หยุดนิ่งเคลื่อนตัวได้ช้า 🔴", code: 4 };
+      else if (speed >= 20) { result.status = "ชะลอตัวเคลื่อนตัวได้ดี"; result.code = 2; }
+      // 4. 10-20 : หนาแน่นเคลื่อนตัวได้ช้า
+      else if (speed >= 10) { result.status = "หนาแน่นเคลื่อนตัวได้ช้า"; result.code = 3; }
+      // 5. 0-10 : หยุดนิ่งเคลื่อนตัวได้ช้า
+      else { result.status = "หยุดนิ่งเคลื่อนตัวได้ช้า 🔴"; result.code = 4; }
+
+      return result;
     }
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
@@ -236,7 +249,7 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 GENERATE REPORT
+  // 🌟 GENERATE REPORT WITH DETAILS
   // -----------------------------------------------------------------------
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
@@ -270,7 +283,7 @@ export default function App() {
               }).join(', ');
           } else {
               const segmentPromises = road.segments.map(async (seg) => {
-                  // Switch direction logic
+                  // Switch Direction
                   let start = seg.start;
                   let end = seg.end;
                   if (reportDirection === 'inbound') {
@@ -283,20 +296,35 @@ export default function App() {
 
               const results = await Promise.all(segmentPromises);
 
-              // 🎯 Logic สรุป: โชว์เฉพาะจุดที่มีปัญหา (Code 2, 3, 4)
-              // Code 2 = 20-40 (ชะลอตัว)
-              // Code 3 = 10-20 (หนาแน่น)
-              // Code 4 = 0-10 (หยุดนิ่ง)
+              // 🎯 Logic: Filter เฉพาะ Code 2, 3, 4 (ชะลอ, หนาแน่น, หยุดนิ่ง)
               const problematicSegments = results.filter(r => r.code >= 2);
               const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
-                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(', ');
+                  // สร้างข้อความแบบละเอียด
+                  finalStatus = problematicSegments.map(p => {
+                      let detailText = p.status;
+                      
+                      // ถ้าล่าช้าเกิน 5 นาที ให้โชว์เวลาที่เสียไป
+                      if (p.delayMin >= 5) {
+                          detailText += ` (ช้ากว่าปกติ +${p.delayMin} น.)`;
+                      } else if (p.code >= 3) {
+                          // ถ้าติดหนักแต่ระยะสั้น ให้โชว์ความเร็วเฉลี่ยแทน
+                          detailText += ` (เฉลี่ย ${p.speed} กม./ชม.)`;
+                      }
+                      return `${p.label} ${detailText}`;
+                  }).join(',\n   • '); // ขึ้นบรรทัดใหม่และย่อหน้าสวยๆ
+
+                  // ถ้ามีหลายจุด ให้จัดรูปแบบให้อ่านง่าย
+                  if (problematicSegments.length > 1) {
+                      finalStatus = "\n   • " + finalStatus;
+                  }
+
                   if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
+
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
-                  // Code 1 (40+) ถือว่าดีหมด
                   finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี/คล่องตัวตลอดสาย";
               }
           }
@@ -342,7 +370,8 @@ export default function App() {
               <Loader2 size={48} className="text-yellow-400 animate-spin" />
               <div className="text-center">
                  <h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3>
-                 <p className="text-slate-400 text-sm">กำลังตรวจสอบ: {reportDirection === 'outbound' ? 'ขาออก (จาก กทม.)' : 'ขาเข้า (เข้า กทม.)'}</p>
+                 <p className="text-slate-400 text-sm">ตรวจสอบ: {reportDirection === 'outbound' ? 'ขาออก (จาก กทม.)' : 'ขาเข้า (เข้า กทม.)'}</p>
+                 <p className="text-slate-500 text-xs mt-1">อาจใช้เวลา 5-10 วินาที</p>
               </div>
            </div>
         </div>
