@@ -49,7 +49,7 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic (Analyst Mode: Speed + Congestion Index) ---
+// --- Traffic Logic (Simplified: ใช้ Speed เพื่อคัดแยกสถานะเท่านั้น ไม่แสดงตัวเลข) ---
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -68,51 +68,33 @@ const getTrafficFromCoords = async (start, end) => {
       
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
+      // คำนวณ Speed เพื่อใช้เป็นเกณฑ์ภายใน (Internal Threshold) เท่านั้น
       const speed = distanceKm / timeHour; 
 
-      // 🧠 LOGIC ใหม่: คำนวณ Congestion Index (ดัชนีรถสะสม)
-      // สมมติ Free Flow Speed ที่ 90 km/h
-      const freeFlowSpeed = 90;
-      let congestionIndex = 0;
-      
-      if (speed < freeFlowSpeed) {
-        // ยิ่งช้ากว่า 90 มากเท่าไหร่ % การสะสมยิ่งสูง
-        congestionIndex = ((freeFlowSpeed - speed) / freeFlowSpeed) * 100;
-      }
-      congestionIndex = Math.round(congestionIndex); // 0 - 100%
-
       let result = {
-        speed: Math.round(speed),
-        congestion: congestionIndex,
         code: 0,
         status: ""
       };
 
-      // --- Analyst Grading Criteria ---
+      // --- Simple Grading (เน้นข้อความกว้างๆ) ---
       if (speed >= 80) { 
           result.status = "คล่องตัว"; 
           result.code = 1; 
       }
       else if (speed >= 40) { 
-          // รถเริ่มเยอะ (แต่ยังวิ่งได้)
-          if (congestionIndex > 30) result.status = "เคลื่อนตัวได้ดี (เริ่มมีปริมาณรถสะสม)";
-          else result.status = "เคลื่อนตัวได้ดี";
+          result.status = "เคลื่อนตัวได้ดี";
           result.code = 1; 
       }
       else if (speed >= 20) { 
-          // ชะลอตัว
-          if (congestionIndex > 60) result.status = "ชะลอตัว (ปริมาณรถสะสมหนาแน่น)";
-          else result.status = "ชะลอตัว";
+          result.status = "ชะลอตัว";
           result.code = 2; 
       }
       else if (speed >= 10) { 
-          // หนาแน่น
-          result.status = "หนาแน่น (รถสะสมเต็มพื้นที่)"; 
+          result.status = "หนาแน่น"; 
           result.code = 3; 
       }
       else { 
-          // วิกฤต
-          result.status = "หยุดนิ่ง/รถสะสมวิกฤต 🔴"; 
+          result.status = "หนาแน่น/หยุดนิ่ง 🔴"; 
           result.code = 4; 
       }
 
@@ -267,7 +249,7 @@ export default function App() {
   }, [rawData, trendStart, trendEnd]);
 
   // -----------------------------------------------------------------------
-  // 🌟 GENERATE REPORT (Analyst Mode: With Congestion Insight)
+  // 🌟 GENERATE REPORT (Simple Mode: No Calculation Display)
   // -----------------------------------------------------------------------
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
@@ -313,39 +295,26 @@ export default function App() {
 
               const results = await Promise.all(segmentPromises);
 
-              // 🎯 Logic: รายงานแบบ Analyst
+              // 🎯 Logic: รายงานตามจริงจากสถานะพื้นฐาน (ไม่แสดงตัวเลข)
               const problematicSegments = results.filter(r => r.code >= 2);
-              const heavyCongestionSegments = results.filter(r => r.congestion > 70); // หาจุดสะสมหนัก (>70%)
+              const errorSegments = results.filter(r => r.code === 0);
 
               if (problematicSegments.length > 0) {
+                  // รายงานแค่ Label + Status (สั้น กระชับ)
                   finalStatus = problematicSegments.map(p => {
-                      let text = `${p.label} ${p.status}`;
-                      // ถ้าสะสมหนักมาก (>70%) ให้วงเล็บความเร็วเฉลี่ยเพื่อให้ผู้ใหญ่เห็นภาพ
-                      if (p.congestion > 70) {
-                          text += ` (ความเร็ว ${p.speed} กม./ชม.)`;
-                      }
-                      return text;
+                      return `${p.label} ${p.status}`;
                   }).join(',\n   • '); 
 
                   if (problematicSegments.length > 1) {
                       finalStatus = "\n   • " + finalStatus;
                   }
 
-                  // ⚠️ เพิ่ม Warning ท้ายประโยค หากมีการสะสมตัวสูง
-                  if (heavyCongestionSegments.length > 0) {
-                      finalStatus += "\n   ⚠️ (พบการสะสมตัวสูง ควรเฝ้าระวังท้ายแถว)";
-                  }
+                  if (errorSegments.length > 0) finalStatus += " (บางช่วงสัญญาณขัดข้อง)";
 
               } else if (results.every(r => r.code === 0)) {
                   finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
               } else {
-                  // เช็คดูว่ามีสะสมระดับปานกลางไหม (30-50%) แม้จะยังเขียวอยู่
-                  const moderateCongestion = results.some(r => r.congestion > 30 && r.congestion <= 60);
-                  if (moderateCongestion) {
-                      finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี (ปริมาณรถปานกลาง)";
-                  } else {
-                      finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
-                  }
+                  finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี/คล่องตัวตลอดสาย";
               }
           }
           report += `- ${road.name} : ${finalStatus}\n`;
