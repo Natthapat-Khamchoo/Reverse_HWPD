@@ -1,142 +1,115 @@
-import { formatTime24 } from './helpers';
+// src/utils/dataProcessor.js
 
-export const processSheetData = (rawData, sourceFormat) => {
-  const processed = rawData.map((row, index) => {
-    // --- Helper ดึงค่า ---
-    const getVal = (possibleKeys) => {
-        const keys = Object.keys(row);
-        for (const pk of possibleKeys) {
-            const foundKey = keys.find(k => k.includes(pk.toLowerCase()));
-            if (foundKey && row[foundKey]) return row[foundKey].trim();
-        }
-        return '';
-    };
+export const processSheetData = (rows, type) => {
+  if (!rows || rows.length === 0) return [];
 
-    // 1. Date & Time Parsing
-    const timeRaw = getVal(['เวลา', 'time']); 
-    const dateRaw = getVal(['วันที่', 'date']);
-    const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
-    const checkStr = (timestampRaw + dateRaw);
-    
-    // Check เบื้องต้นว่าใช่แถวข้อมูลหรือไม่
-    if (!/\d/.test(checkStr) || checkStr.includes('หน่วย') || checkStr.includes('Date')) return null;
-
-    let dateStr = '';
-    let timeStr = '00:00';
-    const parseDateParts = (str) => {
-        if (!str) return '';
-        const parts = str.split(/[\/\-\s]/);
-        if (parts.length >= 3) {
-            let d = parts[0], m = parts[1], y = parts[2];
-            if (d.length === 4) { y = d; d = parts[2]; }
-            let year = parseInt(y);
-            if (year > 2400) year -= 543;
-            if (parseInt(m) > 12 || parseInt(m) < 1 || parseInt(d) > 31 || parseInt(d) < 1) return '';
-            return `${year}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
-        }
-        return '';
-    };
-
-    if (dateRaw) dateStr = parseDateParts(dateRaw);
-    else if (timestampRaw) dateStr = parseDateParts(timestampRaw.split(' ')[0]);
-    if (!dateStr || dateStr.length < 10) return null;
-
-    if (timeRaw) timeStr = formatTime24(timeRaw);
-    else if (timestampRaw) {
-        const parts = timestampRaw.split(' ');
-        if (parts.length >= 2) timeStr = formatTime24(parts.slice(1).join(' '));
-    }
-
-    // 2. Division & Location
-    let div = '1', st = '1';
-    const unitRaw = getVal(['หน่วยงาน', 'unit']);
-    // Logic จับ Division: รองรับ "กก.8", "ทล.1 กก.2", หรือลงท้ายด้วยตัวเลข
-    const divMatch = unitRaw.match(/กก\.?\s*(\d+)/) || unitRaw.match(/\/(\d+)/) || unitRaw.match(/(\d+)$/); 
-    if (divMatch) div = divMatch[1];
-    
-    const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/) || unitRaw.match(/^(\d+)/); 
-    if (stMatch) st = stMatch[1];
-
-    let road = '-', km = '-', dir = '-';
-    const locRaw = getVal(['จุดเกิดเหตุ', 'location', 'สถานที่']);
-    const expRoad = getVal(['ทล.', 'ทล', 'road']); if(expRoad) road = expRoad;
-    const expKm = getVal(['กม.', 'กม', 'km']); if(expKm) km = expKm;
-    const expDir = getVal(['ทิศทาง', 'direction']); if(expDir) dir = expDir;
-
-    if (road === '-' && locRaw) {
-        const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)\s*\//);
-        if (roadMatch) road = roadMatch[1];
-        const kmMatch = locRaw.match(/(?:กม)\.?\s*(\d+)/i);
-        if (kmMatch) km = kmMatch[1];
-        if (locRaw.includes('ขาเข้า')) dir = 'ขาเข้า';
-        else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
-    }
-    
-    // กรองข้อมูลขยะ: ถ้าไม่มีถนน และ ไม่มี กม. ให้ตัดทิ้ง
-    if ((!road || road === '-' || road === '') && (!km || km === '-' || km === '')) return null;
-
-    let lat = parseFloat(getVal(['latitude', 'lat']));
-    let lng = parseFloat(getVal(['longitude', 'lng']));
-    if (isNaN(lat) || lat === 0) { lat = null; lng = null; }
-
-    // 3. Category Logic
-    let mainCategory = 'ทั่วไป', detailText = '', statusColor = 'bg-slate-500';
-
-    if (sourceFormat === 'SAFETY') {
-        // --- LOGIC ใหม่: เหมาว่าเป็นอุบัติเหตุทั้งหมด ---
-        mainCategory = 'อุบัติเหตุ';
-        statusColor = 'bg-red-600';
-
-        // พยายามดึงรายละเอียดมาแสดง (ถ้ามี)
-        const major = getVal(['เหตุน่าสนใจ', 'major']);
-        const general = getVal(['เหตุทั่วไป', 'general']);
-        
-        if (major && major.length > 1 && major !== '-') {
-            detailText = major;
-        } else if (general && general.length > 1 && general !== '-') {
-            detailText = general;
-        } else {
-            detailText = 'อุบัติเหตุ (ไม่ระบุรายละเอียด)';
-        }
-
-    } else if (sourceFormat === 'ENFORCE') {
-        const arrest = getVal(['ผลการจับกุม', 'จับกุม']);
-        const checkpoint = getVal(['จุดตรวจ ว.43', 'ว.43']);
-        
-        if (arrest && arrest !== '-' && arrest.length > 1) {
-            mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
-        } else {
-            mainCategory = 'ว.43'; detailText = checkpoint || '-'; statusColor = 'bg-indigo-500';
-        }
-
-    } else if (sourceFormat === 'TRAFFIC') {
-        const specialLane = getVal(['ช่องทางพิเศษ']);
-        const traffic = getVal(['สภาพจราจร']);
-        const tailback = getVal(['ท้ายแถว']);
-        
-        if (specialLane && specialLane !== '-' && specialLane.length > 1) {
-             if (specialLane.includes('เปิด') || specialLane.includes('เริ่ม')) mainCategory = 'ช่องทางพิเศษ'; 
-             else if (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก')) mainCategory = 'ปิดช่องทางพิเศษ'; 
-             else mainCategory = 'ช่องทางพิเศษ'; 
-             detailText = specialLane; statusColor = 'bg-green-500';
-        } else if (traffic) {
-             if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น')) {
-                mainCategory = 'จราจรติดขัด'; detailText = tailback ? `ท้ายแถว ${tailback}` : traffic; statusColor = 'bg-yellow-500';
-             } else {
-                mainCategory = 'จราจรปกติ'; detailText = traffic; statusColor = 'bg-slate-500';
-             }
+  return rows.map((row, index) => {
+    // 1. จัดการวันที่ (Date Handling)
+    // รองรับทั้ง "26/12/2025" และ "2025-12-26"
+    let dateStr = row['วันที่'] || '';
+    if (dateStr.includes('/')) {
+        const parts = dateStr.split('/');
+        if (parts.length === 3) {
+            // แปลง dd/mm/yyyy -> yyyy-mm-dd (ISO format สำหรับเปรียบเทียบ)
+            // ระวังเรื่อง ค.ศ./พ.ศ. ถ้า Google Sheet ส่งมาเป็น ค.ศ. แล้วก็ใช้ได้เลย
+            dateStr = `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`; 
         }
     }
 
+    // 2. จัดการเวลา (Time Handling) - 🛠️ จุดแก้บั๊ก 19.00 -> 19:00
+    let timeStr = row['เวลา'] ? String(row['เวลา']).trim() : "00:00";
+    
+    // แปลงจุดทศนิยมเป็นทวิภาค (Colon)
+    timeStr = timeStr.replace('.', ':');
+    
+    // จัดรูปแบบให้สมบูรณ์ (เช่น "9:5" -> "09:05")
+    const timeParts = timeStr.split(':');
+    if (timeParts.length >= 2) {
+        timeStr = `${timeParts[0].padStart(2, '0')}:${timeParts[1].padStart(2, '0')}`;
+    } else if (timeParts.length === 1 && timeStr.length === 4) {
+        // กรณีมาเป็น "1900"
+        timeStr = `${timeStr.slice(0, 2)}:${timeStr.slice(2)}`;
+    }
+
+    // สร้าง Timestamp สำหรับเรียงลำดับ
+    let timestamp = 0;
+    try {
+        timestamp = new Date(`${dateStr}T${timeStr}:00`).getTime();
+    } catch (e) {
+        timestamp = 0;
+    }
+
+    // 3. จัดการพิกัด (Coordinates)
+    // บางครั้ง Latitude มาเป็น "15.8527664" (String) ต้องแปลงเป็น Number
+    const lat = parseFloat(row['Latitude'] || row['lat'] || 0);
+    const lng = parseFloat(row['Longitude'] || row['lng'] || row['lon'] || 0);
+
+    // Return ข้อมูลที่ Clean แล้ว
     return {
-      id: `${sourceFormat}-${index}`,
-      date: dateStr, time: timeStr, div: div, st: st,
-      category: mainCategory, detail: detailText,
-      road: road, km: km, dir: dir,
-      lat: lat, lng: lng, colorClass: statusColor, reportFormat: sourceFormat,
-      timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
+      id: `${type}-${index}`,
+      date: dateStr, // format: yyyy-mm-dd
+      time: timeStr, // format: HH:mm
+      timestamp: timestamp,
+      div: extractDivision(row['หน่วยงาน']), // แยกเลขกองกำกับการ (เช่น "ส.ทล.4 กก.1" -> "1")
+      st: extractStation(row['หน่วยงาน']),   // แยกเลขสถานี (เช่น "ส.ทล.4 กก.1" -> "4")
+      category: mapCategory(row, type),      // จัดกลุ่ม Category ให้เป็นมาตรฐาน
+      detail: row['รายละเอียด'] || row['Original Text'] || row['ผลการจับกุม'] || '',
+      road: extractRoad(row['จุดเกิดเหตุ'] || row['รายละเอียด']),
+      km: extractKM(row['จุดเกิดเหตุ'] || row['รายละเอียด']),
+      dir: extractDirection(row['จุดเกิดเหตุ'] || row['รายละเอียด']),
+      lat: lat,
+      lng: lng,
+      specialLane: row['ช่องทางพิเศษ'] || '', // ถ้ามีคอลัมน์นี้
+      reportFormat: type
     };
-  });
-  
-  return processed.filter(item => item !== null);
+  }).filter(item => item.date); // กรองแถวที่ไม่มีวันที่ทิ้ง
+};
+
+// --- Helper Functions สำหรับไฟล์นี้ ---
+
+const extractDivision = (text) => {
+    if (!text) return '';
+    const match = text.match(/กก\.(\d+)/);
+    return match ? match[1] : '';
+};
+
+const extractStation = (text) => {
+    if (!text) return '';
+    const match = text.match(/ส\.ทล\.(\d+)/);
+    return match ? match[1] : '';
+};
+
+const mapCategory = (row, type) => {
+    // Logic การ mapping ชื่อเหตุการณ์ให้เป็นสีเดียวกัน
+    const rawCat = row['หมวดหมู่'] || row['ผลการจับกุม'] || '';
+    if (type === 'SAFETY' || rawCat.includes('อุบัติเหตุ')) return 'อุบัติเหตุ';
+    if (rawCat.includes('เมา')) return 'จับกุม'; // หรือแยกเป็น 'เมาแล้วขับ' ตามต้องการ
+    if (rawCat.includes('จราจร')) return 'จราจรติดขัด';
+    if (rawCat.includes('ช่องทางพิเศษ')) return 'ช่องทางพิเศษ';
+    return rawCat || 'ทั่วไป';
+};
+
+const extractRoad = (text) => {
+    // ตัวอย่างการดึงเลขถนนแบบง่าย
+    if (!text) return '-';
+    // พยายามหาคำว่า ทล.32, M6, ถนนเอเชีย
+    if (text.includes('M6')) return 'M6';
+    if (text.includes('สายเอเชีย')) return '32';
+    if (text.includes('พหลโยธิน')) return '1';
+    if (text.includes('มิตรภาพ')) return '2';
+    const match = text.match(/ทล\.(\d+)/);
+    return match ? match[1] : '-';
+};
+
+const extractKM = (text) => {
+    if (!text) return '';
+    const match = text.match(/กม\.(\d+)/);
+    return match ? match[1] : '';
+};
+
+const extractDirection = (text) => {
+    if (!text) return '';
+    if (text.includes('ขาเข้า')) return 'ขาเข้า';
+    if (text.includes('ขาออก')) return 'ขาออก';
+    return '';
 };
