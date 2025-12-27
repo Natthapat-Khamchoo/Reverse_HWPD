@@ -124,10 +124,12 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
+  // Trend Controls
   const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
   const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
   const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
 
+  // Date Logic
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -188,7 +190,7 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 2. Accident Data (Filtered by Date Only - All Units)
+  // 2. Accident Data
   const accidentLogData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -205,9 +207,8 @@ export default function App() {
     });
   }, [logData]);
 
-  // 🔥 4. Map Data (Fixed: Only Accidents Div 8, Active Lanes, Drunk All)
+  // 🔥 4. Map Data (Fixed: Special Lane Logic)
   const mapData = useMemo(() => {
-    // กรองข้อมูลตามวันที่ (ไม่สน Filter หน่วยงาน เพื่อให้ Map แสดงภาพรวมตามเงื่อนไขที่ขอ)
     const dateFilteredData = rawData.filter(d => {
         if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
         return true;
@@ -222,56 +223,52 @@ export default function App() {
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
         const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
 
-        // ✅ 1. ช่องทางพิเศษ (เปิด = ขึ้น, ปิด = ลบ)
+        // 🟢 FIX: ช่องทางพิเศษ (เช็คทั้ง Keyword และ Category)
         const laneKey = `LANE-${locKey}`;
-        if (content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane')) {
+        const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
+        const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
+
+        if (isOpening) {
+            // ถ้าเป็นเปิด ให้สร้างหมุด (แม้จะไม่มีคำว่า "เปิด" ในเนื้อหา แต่ category ใช่ก็เอา)
             activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
         } 
-        else if (content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก')) {
+        else if (isClosing) {
+            // ถ้าเป็นปิด ให้ลบหมุดออก
             activeStates.delete(laneKey);
         }
 
-        // ✅ 2. อุบัติเหตุ (เฉพาะ กก.8)
+        // อุบัติเหตุ (เฉพาะ กก.8)
         if (row.category === 'อุบัติเหตุ' && row.div === '8') {
-             otherEvents.push({ ...row, pinType: 'event' }); // ใช้ pinType event หรือ accident
+             otherEvents.push({ ...row, pinType: 'event' });
         }
 
-        // ✅ 3. เมาแล้วขับ (ทุกหน่วย)
-        // เช็คคำว่า "เมา" และเป็นงานจับกุม (Enforce หรือ Category)
+        // เมาแล้วขับ (ทุกหน่วย)
         if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
              otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
         }
-
-        // ❌ ไม่แสดงจราจรปกติ/ติดขัด (ตัด Logic เดิมทิ้งทั้งหมด)
     });
 
     return [...otherEvents, ...activeStates.values()];
   }, [rawData, filterStartDate, filterEndDate]);
 
-  // 📊 STATS (Final Fix: Robust Drunk Count)
+  // 📊 STATS (Including Special Lane from Map)
   const stats = useMemo(() => {
     const drunkCount = rawData.filter(item => {
         let passDate = true;
         if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-        
-        // Combine text fields for searching
         const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
-        
-        // เช็คว่าเป็นงานจับกุม และมีคำว่า "เมา"
-        // (บางที Report Format เป็น SAFETY แต่พิมพ์จับกุมเมาก็มี เราเลยเช็คกว้างๆ ไว้ก่อน)
         const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
         const isDrunk = allText.includes('เมา');
-        
         return passDate && isEnforceContext && isDrunk;
     }).length;
 
-    // Special Lane Counts
-    const openLaneCount = mapData.filter(d => d.pinType === 'lane').length; // นับจาก Map Data ที่ Active อยู่จริง
-    // ปิดช่องทาง ใช้วิธีนับจาก Visual Data (Filtered) เพื่อให้ตรงกับ Table
-    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    // 🔥 FIX: นับจำนวนช่องทางพิเศษที่เปิดอยู่ (Active) จาก Map Data จริงๆ
+    // (เพราะ Map Data ผ่าน Logic การบวกลบ เปิด/ปิด มาแล้ว)
+    const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
     
-    // Active Lanes (Count from Map Data map entries)
-    const activeLaneCount = openLaneCount;
+    // ยอดเปิด/ปิด สะสม (นับจาก Visual Data ตามช่วงเวลา)
+    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
 
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
@@ -284,7 +281,7 @@ export default function App() {
     return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
 
-  // Charts & Report Handlers
+  // ... (ส่วนอื่นๆ Chart, Report, JSX เหมือนเดิม)
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
     const dataIndex = elements[0].index;
