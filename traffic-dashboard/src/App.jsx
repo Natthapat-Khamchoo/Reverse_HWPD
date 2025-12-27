@@ -124,12 +124,10 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
-  // Trend Controls
   const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
   const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
   const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
 
-  // Date Logic
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -207,24 +205,24 @@ export default function App() {
     });
   }, [logData]);
 
-  // 4. Map Data
+  // 🔥 4. Map Data (Fixed: Only Accidents Div 8, Active Lanes, Drunk All)
   const mapData = useMemo(() => {
-    const sortedLog = [...visualData].sort((a, b) => a.timestamp - b.timestamp);
+    // กรองข้อมูลตามวันที่ (ไม่สน Filter หน่วยงาน เพื่อให้ Map แสดงภาพรวมตามเงื่อนไขที่ขอ)
+    const dateFilteredData = rawData.filter(d => {
+        if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
+        return true;
+    }).sort((a, b) => a.timestamp - b.timestamp);
+
     const activeStates = new Map(); 
     const otherEvents = []; 
 
-    sortedLog.forEach(row => {
+    dateFilteredData.forEach(row => {
         if (!row.lat || !row.lng) return; 
+        
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-        const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''}`.toLowerCase();
+        const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
 
-        if (content.includes('ติดขัด') || content.includes('หนาแน่น') || content.includes('รถมาก') || content.includes('ชะลอตัว') || content.includes('เคลื่อนตัวช้า')) {
-            activeStates.set(locKey, { ...row, pinType: 'traffic', status: 'congested' });
-        } 
-        else if (content.includes('คล่องตัว') || content.includes('รถน้อย') || content.includes('ปกติ') || content.includes('เบาบาง') || content.includes('เคลื่อนตัวได้ดี')) {
-            activeStates.delete(locKey);
-        }
-
+        // ✅ 1. ช่องทางพิเศษ (เปิด = ขึ้น, ปิด = ลบ)
         const laneKey = `LANE-${locKey}`;
         if (content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane')) {
             activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
@@ -233,33 +231,47 @@ export default function App() {
             activeStates.delete(laneKey);
         }
 
-        if (row.category === 'อุบัติเหตุ' || content.includes('ว.40') || row.category === 'ก่อสร้าง' || row.category === 'ซ่อมสร้าง') {
-             otherEvents.push({ ...row, pinType: 'event' });
+        // ✅ 2. อุบัติเหตุ (เฉพาะ กก.8)
+        if (row.category === 'อุบัติเหตุ' && row.div === '8') {
+             otherEvents.push({ ...row, pinType: 'event' }); // ใช้ pinType event หรือ accident
         }
-    });
-    return [...otherEvents, ...activeStates.values()];
-  }, [visualData]);
 
-  // 📊 STATS (Final Fix: นับเมาจาก Enforcement Sheet และทุกหมวด)
+        // ✅ 3. เมาแล้วขับ (ทุกหน่วย)
+        // เช็คคำว่า "เมา" และเป็นงานจับกุม (Enforce หรือ Category)
+        if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
+             otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
+        }
+
+        // ❌ ไม่แสดงจราจรปกติ/ติดขัด (ตัด Logic เดิมทิ้งทั้งหมด)
+    });
+
+    return [...otherEvents, ...activeStates.values()];
+  }, [rawData, filterStartDate, filterEndDate]);
+
+  // 📊 STATS (Final Fix: Robust Drunk Count)
   const stats = useMemo(() => {
     const drunkCount = rawData.filter(item => {
         let passDate = true;
         if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
         
-        // 🔥 แก้ไข: เช็คว่าเป็นงานจับกุม (จาก Sheet ENFORCE หรือ Category 'จับกุม')
-        const isEnforce = item.reportFormat === 'ENFORCE' || item.category === 'จับกุม';
+        // Combine text fields for searching
+        const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
         
-        // 🔥 แก้ไข: เช็ค Keyword "เมา" ในรายละเอียด หรือหมวดหมู่
-        const hasDrunkKeyword = (item.detail && item.detail.includes('เมา')) || 
-                                (item.category && item.category.includes('เมา'));
+        // เช็คว่าเป็นงานจับกุม และมีคำว่า "เมา"
+        // (บางที Report Format เป็น SAFETY แต่พิมพ์จับกุมเมาก็มี เราเลยเช็คกว้างๆ ไว้ก่อน)
+        const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
+        const isDrunk = allText.includes('เมา');
         
-        return passDate && isEnforce && hasDrunkKeyword;
+        return passDate && isEnforceContext && isDrunk;
     }).length;
 
     // Special Lane Counts
-    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const openLaneCount = mapData.filter(d => d.pinType === 'lane').length; // นับจาก Map Data ที่ Active อยู่จริง
+    // ปิดช่องทาง ใช้วิธีนับจาก Visual Data (Filtered) เพื่อให้ตรงกับ Table
     const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
-    const activeLaneCount = Math.max(0, openLaneCount - closeLaneCount);
+    
+    // Active Lanes (Count from Map Data map entries)
+    const activeLaneCount = openLaneCount;
 
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
@@ -270,8 +282,9 @@ export default function App() {
         stack: 'Stack 0',
     }));
     return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
-  }, [visualData, rawData, filterStartDate, filterEndDate]);
+  }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
 
+  // Charts & Report Handlers
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
     const dataIndex = elements[0].index;
@@ -306,7 +319,6 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // 📄 Report Logic
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
