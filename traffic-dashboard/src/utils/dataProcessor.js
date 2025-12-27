@@ -13,7 +13,16 @@ export const processSheetData = (rawData, sourceFormat) => {
     };
 
     // 1. Date & Time Parsing
-    const timeRaw = getVal(['เวลา', 'time']);
+    // 🛠️ FIX: ดึงค่าเวลา แล้วแปลงจุด (.) เป็นโคลอน (:) ทันที
+    let timeRaw = getVal(['เวลา', 'time']); 
+    if (timeRaw) {
+        timeRaw = timeRaw.replace(/\./g, ':'); // แก้ปัญหา 19.00 -> 19:00
+        // กรณีไม่มี : เลย (เช่น 1900) ให้เติม
+        if (!timeRaw.includes(':') && timeRaw.length === 4) {
+            timeRaw = timeRaw.slice(0, 2) + ":" + timeRaw.slice(2);
+        }
+    }
+
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const checkStr = (timestampRaw + dateRaw);
@@ -23,14 +32,18 @@ export const processSheetData = (rawData, sourceFormat) => {
 
     let dateStr = '';
     let timeStr = '00:00';
+    
     const parseDateParts = (str) => {
         if (!str) return '';
         const parts = str.split(/[\/\-\s]/);
         if (parts.length >= 3) {
             let d = parts[0], m = parts[1], y = parts[2];
+            // กรณี format เป็น yyyy-mm-dd
             if (d.length === 4) { y = d; d = parts[2]; }
+            
             let year = parseInt(y);
-            if (year > 2400) year -= 543;
+            if (year > 2400) year -= 543; // แปลง พ.ศ. -> ค.ศ.
+            
             if (parseInt(m) > 12 || parseInt(m) < 1 || parseInt(d) > 31 || parseInt(d) < 1) return '';
             return `${year}-${m.toString().padStart(2,'0')}-${d.toString().padStart(2,'0')}`;
         }
@@ -39,10 +52,20 @@ export const processSheetData = (rawData, sourceFormat) => {
 
     if (dateRaw) dateStr = parseDateParts(dateRaw);
     else if (timestampRaw) dateStr = parseDateParts(timestampRaw.split(' ')[0]);
+    
     if (!dateStr || dateStr.length < 10) return null;
 
-    if (timeRaw) timeStr = formatTime24(timeRaw);
-    else if (timestampRaw) {
+    // 🛠️ FIX: เรียกใช้ formatTime24 ด้วยค่าที่ Clean แล้ว
+    if (timeRaw) {
+         // ตรวจสอบ formatTime24 ว่ารับค่าแบบไหน ถ้ามันรับ 19:00 ได้ก็จบ
+         // แต่ถ้ามันซับซ้อน เรากำหนดค่าตรงๆ เลยก็ได้ถ้ารูปแบบถูกต้องแล้ว
+         const parts = timeRaw.split(':');
+         if (parts.length >= 2) {
+             timeStr = `${parts[0].padStart(2,'0')}:${parts[1].padStart(2,'0')}`;
+         } else {
+             timeStr = formatTime24(timeRaw); // Fallback
+         }
+    } else if (timestampRaw) {
         const parts = timestampRaw.split(' ');
         if (parts.length >= 2) timeStr = formatTime24(parts.slice(1).join(' '));
     }
@@ -103,8 +126,12 @@ export const processSheetData = (rawData, sourceFormat) => {
         const arrest = getVal(['ผลการจับกุม', 'จับกุม']);
         const checkpoint = getVal(['จุดตรวจ ว.43', 'ว.43']);
         
+        // 🛠️ เพิ่ม keyword 'เมา' เพื่อความชัวร์ (ตามโจทย์ก่อนหน้านี้)
         if (arrest && arrest !== '-' && arrest.length > 1) {
-            mainCategory = 'จับกุม'; detailText = arrest; statusColor = 'bg-purple-600';
+            mainCategory = 'จับกุม'; 
+            if (arrest.includes('เมา')) mainCategory = 'จับกุมเมาแล้วขับ'; // (Optional) แยก Category ให้ชัดถ้าต้องการ
+            detailText = arrest; 
+            statusColor = 'bg-purple-600';
         } else {
             mainCategory = 'ว.43'; detailText = checkpoint || '-'; statusColor = 'bg-indigo-500';
         }
