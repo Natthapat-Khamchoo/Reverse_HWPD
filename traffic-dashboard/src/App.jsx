@@ -53,7 +53,6 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// 🧠 วิเคราะห์ข้อความรายงานเพื่อใส่ Emoji (ใช้กับ Hybrid Report)
 const analyzeTrafficText = (text) => {
   if (!text) return { emoji: "📝", status: "รายงานทั่วไป" };
   const lowerText = text.toLowerCase();
@@ -66,7 +65,6 @@ const analyzeTrafficText = (text) => {
   return { emoji: "📝", status: "รายงานตามข้อความ" };
 };
 
-// 🚦 คำนวณสภาพจราจรจาก API (เกณฑ์ใหม่: >= 60 คือคล่องตัว)
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -88,7 +86,6 @@ const getTrafficFromCoords = async (start, end) => {
       const speed = distanceKm / timeHour; 
       let result = { code: 0, status: "" };
 
-      // Relaxed Thresholds
       if (speed >= 60) { result.status = "คล่องตัว"; result.code = 1; }
       else if (speed >= 35) { result.status = "หนาแน่น/ชะลอตัว"; result.code = 2; }
       else if (speed >= 15) { result.status = "ติดขัด"; result.code = 3; }
@@ -142,7 +139,7 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
-  // 🔄 Fetch Data (Auto Refresh Supported)
+  // 🔄 Fetch Data
   const fetchData = useCallback(async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     setError(false);
@@ -172,12 +169,20 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // 1. Main Log Data (Filtered by User)
+  // 1. Log Data (Filtered)
   const logData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-      const passCategory = selectedCategories.length === 0 || selectedCategories.includes(item.category);
+      
+      let passCategory = true;
+      if (selectedCategories.length > 0) {
+          passCategory = selectedCategories.includes(item.category);
+          if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') {
+              passCategory = true;
+          }
+      }
+
       const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
       const passDiv = !filterDiv || item.div === filterDiv;
       const passSt = !filterSt || item.st === filterSt;
@@ -185,7 +190,7 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 2. Accident Data (Filtered by Date ONLY - All Units)
+  // 2. Accident Data (Filtered by Date Only - All Units)
   const accidentLogData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -194,6 +199,7 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate]);
 
+  // 3. Visual Data
   const visualData = useMemo(() => {
     return logData.filter(item => {
         if (item.category === 'อุบัติเหตุ') return item.div === '8'; 
@@ -201,30 +207,59 @@ export default function App() {
     });
   }, [logData]);
 
+  // 4. Map Data
   const mapData = useMemo(() => {
     const sortedLog = [...visualData].sort((a, b) => a.timestamp - b.timestamp);
     const activeStates = new Map(); 
     const otherEvents = []; 
+
     sortedLog.forEach(row => {
-        if (row.lat === null || row.lng === null) return;
+        if (!row.lat || !row.lng) return; 
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-        if (row.category === 'จราจรติดขัด') { activeStates.set(locKey, row); } 
-        else if (row.category === 'จราจรปกติ') { activeStates.delete(locKey); } 
-        else if (row.category === 'ช่องทางพิเศษ') { activeStates.set(`LANE-${locKey}`, row); } 
-        else if (row.category === 'ปิดช่องทางพิเศษ') { activeStates.delete(`LANE-${locKey}`); } 
-        else { otherEvents.push(row); }
+        const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''}`.toLowerCase();
+
+        if (content.includes('ติดขัด') || content.includes('หนาแน่น') || content.includes('รถมาก') || content.includes('ชะลอตัว') || content.includes('เคลื่อนตัวช้า')) {
+            activeStates.set(locKey, { ...row, pinType: 'traffic', status: 'congested' });
+        } 
+        else if (content.includes('คล่องตัว') || content.includes('รถน้อย') || content.includes('ปกติ') || content.includes('เบาบาง') || content.includes('เคลื่อนตัวได้ดี')) {
+            activeStates.delete(locKey);
+        }
+
+        const laneKey = `LANE-${locKey}`;
+        if (content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane')) {
+            activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
+        } 
+        else if (content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก')) {
+            activeStates.delete(laneKey);
+        }
+
+        if (row.category === 'อุบัติเหตุ' || content.includes('ว.40') || row.category === 'ก่อสร้าง' || row.category === 'ซ่อมสร้าง') {
+             otherEvents.push({ ...row, pinType: 'event' });
+        }
     });
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
-  // 📊 Stats & KPI
+  // 📊 STATS (Final Fix: นับเมาจาก Enforcement Sheet และทุกหมวด)
   const stats = useMemo(() => {
-    // Drunk Count: All units, filtered by Date
     const drunkCount = rawData.filter(item => {
         let passDate = true;
         if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-        return passDate && item.category === 'จับกุม' && item.detail && item.detail.includes('เมา');
+        
+        // 🔥 แก้ไข: เช็คว่าเป็นงานจับกุม (จาก Sheet ENFORCE หรือ Category 'จับกุม')
+        const isEnforce = item.reportFormat === 'ENFORCE' || item.category === 'จับกุม';
+        
+        // 🔥 แก้ไข: เช็ค Keyword "เมา" ในรายละเอียด หรือหมวดหมู่
+        const hasDrunkKeyword = (item.detail && item.detail.includes('เมา')) || 
+                                (item.category && item.category.includes('เมา'));
+        
+        return passDate && isEnforce && hasDrunkKeyword;
     }).length;
+
+    // Special Lane Counts
+    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    const activeLaneCount = Math.max(0, openLaneCount - closeLaneCount);
 
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
@@ -234,7 +269,7 @@ export default function App() {
         backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
         stack: 'Stack 0',
     }));
-    return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
+    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData, rawData, filterStartDate, filterEndDate]);
 
   const handleChartClick = useCallback((event, elements) => {
@@ -271,7 +306,7 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // 📄 Hybrid Report Generation
+  // 📄 Report Logic
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
@@ -290,7 +325,6 @@ export default function App() {
         
         for (const road of region.roads) {
           regionHasRoads = true;
-          // 1. Search for Officer's Report first
           const officerReport = rawData.find(d => 
               d.road === road.id && 
               d.date === todayFilterStr &&
@@ -301,14 +335,12 @@ export default function App() {
           let prefixEmoji = "";
 
           if (officerReport) {
-              // 👮‍♂️ Use Officer Report
               const analysis = analyzeTrafficText(officerReport.detail);
-              const laneInfo = officerReport.category.includes('ช่องทางพิเศษ') ? ' (เปิดช่องทางพิเศษ)' : '';
+              const laneInfo = officerReport.category.includes('ช่องทางพิเศษ') || officerReport.detail.includes('เปิดช่องทาง') ? ' (เปิดช่องทางพิเศษ)' : '';
               prefixEmoji = analysis.emoji;
               let cleanDetail = officerReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
               finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo} (จนท.รายงาน)`;
           } else {
-              // 🤖 Use API Fallback
               const segmentPromises = road.segments.map(async (seg) => {
                   let start = seg.start;
                   let end = seg.end;
@@ -364,16 +396,12 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* 🟢 Loading & Modal Components */}
+      {/* Loading & Modal */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
               <Loader2 size={48} className="text-yellow-400 animate-spin" />
-              <div className="text-center">
-                 <h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3>
-                 <p className="text-slate-400 text-sm">ตรวจสอบ: {reportDirection === 'outbound' ? 'ขาออก (จาก กทม.)' : 'ขาเข้า (เข้า กทม.)'}</p>
-                 <p className="text-slate-500 text-xs mt-1">อาจใช้เวลา 5-10 วินาที</p>
-              </div>
+              <div className="text-center"><h3 className="text-white font-bold text-lg">กำลังประมวลผลรายงาน...</h3><p className="text-slate-400 text-sm">ตรวจสอบ: {reportDirection === 'outbound' ? 'ขาออก (จาก กทม.)' : 'ขาเข้า (เข้า กทม.)'}</p><p className="text-slate-500 text-xs mt-1">อาจใช้เวลา 5-10 วินาที</p></div>
            </div>
         </div>
       )}
@@ -385,9 +413,7 @@ export default function App() {
               <h3 className="text-white font-bold flex items-center gap-2"><ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก {reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)'}</h3>
               <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white p-1"><X size={24}/></button>
             </div>
-            <div className="p-4 flex-1">
-              <textarea className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none" value={generatedReportText} readOnly />
-            </div>
+            <div className="p-4 flex-1"><textarea className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none" value={generatedReportText} readOnly /></div>
             <div className="p-4 bg-slate-900 border-t border-slate-700">
               <button onClick={handleCopyText} className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${copySuccess ? "bg-green-600 text-white hover:bg-green-500" : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"}`}>
                 {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>} {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
@@ -397,12 +423,9 @@ export default function App() {
         </div>
       )}
 
-      {/* 🟢 Header */}
+      {/* Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
-        <h1 className="text-xl font-bold text-white flex items-center gap-2">
-           <div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div>
-           <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span>
-        </h1>
+        <h1 className="text-xl font-bold text-white flex items-center gap-2"><div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div><span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">ศูนย์ปฏิบัติการจราจร บก.ทล.</span></h1>
         <div className="flex items-center gap-2">
              <div className="flex bg-slate-800 rounded-lg p-1 border border-slate-700 items-center gap-2">
                 <span className="text-[10px] text-slate-500 hidden sm:block">Updated: {lastUpdated.toLocaleTimeString('th-TH')}</span>
@@ -415,7 +438,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* 🟢 Controls */}
+      {/* Controls */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
@@ -432,16 +455,16 @@ export default function App() {
         </div>
       )}
 
-      {/* 🟢 KPI Cards */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <KPI_Card title="เหตุการณ์ทั้งหมด" value={visualData.length} subtext="กก.8 (เฉพาะอุบัติเหตุ)" icon={ListChecks} accentColor="bg-slate-200" />
         <KPI_Card title="อุบัติเหตุ (กก.8)" value={visualData.filter(d => d.category === 'อุบัติเหตุ').length} subtext="รวมทั้งหมด" icon={CarFront} accentColor="bg-red-500" />
         <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา (ทุกหน่วย)" icon={Wine} accentColor="bg-purple-500" />
-        <KPI_Card title="เปิดช่องทางพิเศษ" value={visualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="ยอดเปิด (ครั้ง)" icon={ArrowRightCircle} accentColor="bg-green-500" />
-        <KPI_Card title="ปิดช่องทางพิเศษ" value={visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
+        <KPI_Card title="ช่องทางพิเศษ (คงเหลือ)" value={stats.activeLaneCount} subtext={`เปิด ${stats.openLaneCount} / ปิด ${stats.closeLaneCount}`} icon={ArrowRightCircle} accentColor={stats.activeLaneCount > 0 ? "bg-green-500 animate-pulse" : "bg-slate-500"} />
+        <KPI_Card title="ปิดช่องทางพิเศษ" value={stats.closeLaneCount} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
 
-      {/* 🟢 Map & Chart */}
+      {/* Map & Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-auto lg:h-[450px]">
          <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col h-[350px] lg:h-full">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
@@ -450,35 +473,19 @@ export default function App() {
             <div className="flex-1 w-full h-full"><LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} /></div>
          </div>
          <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col h-[300px] lg:h-full">
-             <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center">
-                <span>สถิติแยกตาม กก.</span> 
-                <div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded"><MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง</div>
-             </h3>
-             <div className="flex-1 w-full relative">
-                <Bar data={stats.divChartConfig} options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', onClick: handleChartClick, onHover: (event, chartElement) => { event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default'; }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } }} />
-             </div>
+             <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center"><span>สถิติแยกตาม กก.</span><div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded"><MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง</div></h3>
+             <div className="flex-1 w-full relative"><Bar data={stats.divChartConfig} options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', onClick: handleChartClick, onHover: (event, chartElement) => { event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default'; }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } }} /></div>
          </div>
       </div>
 
-      {/* 🟢 DATA LOGS (Dual Table) */}
+      {/* Logs (Dual Table) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        
         {/* Left: General Log */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
-             <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ (Log)</h3>
-                <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">แสดง {logData.length} รายการ</span>
-             </div>
+             <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ (Log)</h3><span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">แสดง {logData.length} รายการ</span></div>
              <div className="flex-1 overflow-y-auto custom-scrollbar">
                 <table className="w-full text-xs text-left text-slate-300">
-                  <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10">
-                    <tr>
-                        <th className="px-3 py-3 font-semibold">เวลา</th>
-                        <th className="px-3 py-3 font-semibold">หน่วย</th>
-                        <th className="px-3 py-3 font-semibold">ประเภท</th>
-                        <th className="px-3 py-3 font-semibold">รายละเอียด</th>
-                    </tr>
-                  </thead>
+                  <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10"><tr><th className="px-3 py-3 font-semibold">เวลา</th><th className="px-3 py-3 font-semibold">หน่วย</th><th className="px-3 py-3 font-semibold">ประเภท</th><th className="px-3 py-3 font-semibold">รายละเอียด</th></tr></thead>
                   <tbody className="divide-y divide-slate-700/50">
                     {logData.length > 0 ? logData.map((item, idx) => (
                       <tr key={idx} className={`hover:bg-slate-700/30 transition-colors ${item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
@@ -492,23 +499,12 @@ export default function App() {
                 </table>
              </div>
         </div>
-
-        {/* Right: Accident Log (All Units + Detail) */}
+        {/* Right: Accident Log */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
-             <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center">
-                <h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500"/> อุบัติเหตุ (ทุกหน่วยงาน)</h3>
-                <span className="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded border border-red-800">รวม {accidentLogData.length} รายการ</span>
-             </div>
+             <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center"><h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500"/> อุบัติเหตุ (ทุกหน่วยงาน)</h3><span className="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded border border-red-800">รวม {accidentLogData.length} รายการ</span></div>
              <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900/30">
                 <table className="w-full text-xs text-left text-slate-300">
-                  <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10">
-                    <tr>
-                        <th className="px-3 py-3 font-semibold w-[15%]">เวลา</th>
-                        <th className="px-3 py-3 font-semibold w-[15%]">หน่วย</th>
-                        <th className="px-3 py-3 font-semibold w-[25%]">จุดเกิดเหตุ</th>
-                        <th className="px-3 py-3 font-semibold w-[45%]">รายละเอียด</th>
-                    </tr>
-                  </thead>
+                  <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10"><tr><th className="px-3 py-3 font-semibold w-[15%]">เวลา</th><th className="px-3 py-3 font-semibold w-[15%]">หน่วย</th><th className="px-3 py-3 font-semibold w-[25%]">จุดเกิดเหตุ</th><th className="px-3 py-3 font-semibold w-[45%]">รายละเอียด</th></tr></thead>
                   <tbody className="divide-y divide-slate-700/50">
                     {accidentLogData.length > 0 ? accidentLogData.map((item, idx) => (
                       <tr key={idx} className="hover:bg-red-900/10 transition-colors">
@@ -524,21 +520,14 @@ export default function App() {
         </div>
       </div>
 
-      {/* 🟢 Trend Chart (Bottom) */}
+      {/* Trend Chart */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
                 <h3 className="text-sm font-bold text-white flex items-center gap-2"><TrendingUp size={16} className="text-green-400"/> เปรียบเทียบรายวัน (อุบัติเหตุเฉพาะ กก.8)</h3>
-                <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span>
-                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} />
-                    <span className="text-slate-500 text-xs">-</span>
-                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} />
-                </div>
+                <div className="flex items-center gap-2"><span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span><input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} /><span className="text-slate-500 text-xs">-</span><input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} /></div>
             </div>
-            <div className="h-[240px] w-full relative">
-                 <Bar data={trendChartConfig} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } } }} />
-            </div>
+            <div className="h-[240px] w-full relative"><Bar data={trendChartConfig} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } } }} /></div>
         </div>
       </div>
       
