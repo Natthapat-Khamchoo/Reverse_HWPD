@@ -169,119 +169,123 @@ export default function App() {
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // 1. Log Data (Filtered)
-  const logData = useMemo(() => {
-    return rawData.filter(item => {
-      let passDate = true;
-      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-      
-      let passCategory = true;
-      if (selectedCategories.length > 0) {
-          passCategory = selectedCategories.includes(item.category);
-          if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') {
-              passCategory = true;
-          }
-      }
+  // -----------------------------------------------------------------------
+  // 🌟 DATASETS (แยกถังข้อมูลให้ชัดเจน)
+  // -----------------------------------------------------------------------
 
-      const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
-      const passDiv = !filterDiv || item.div === filterDiv;
-      const passSt = !filterSt || item.st === filterSt;
-      return passDate && passCategory && passRoad && passDiv && passSt;
-    }).sort((a,b) => b.timestamp - a.timestamp);
-  }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
-
-  // 2. Accident Data
-  const accidentLogData = useMemo(() => {
+  // 1. Global Data (กรองแค่วันที่ ไม่สน กก./ส.ทล.) -> ใช้สำหรับ Map, Chart, KPI เมา
+  const globalDateData = useMemo(() => {
     return rawData.filter(item => {
-      let passDate = true;
-      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-      return passDate && item.category === 'อุบัติเหตุ';
+      if (filterStartDate && filterEndDate) return item.date >= filterStartDate && item.date <= filterEndDate;
+      return true;
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate]);
 
-  // 3. Visual Data
-  const visualData = useMemo(() => {
-    return logData.filter(item => {
-        if (item.category === 'อุบัติเหตุ') return item.div === '8'; 
-        return true; 
+  // 2. Log Data (กรองวันที่ + กรอง User Selection) -> ใช้สำหรับ Table ซ้าย
+  const logData = useMemo(() => {
+    return globalDateData.filter(item => {
+      let passCategory = true;
+      if (selectedCategories.length > 0) {
+          passCategory = selectedCategories.includes(item.category);
+          // Special Lane Fix: include 'ปิด' when filtering 'ช่องทางพิเศษ'
+          if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') passCategory = true;
+      }
+      const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
+      const passDiv = !filterDiv || item.div === filterDiv;
+      const passSt = !filterSt || item.st === filterSt;
+      return passCategory && passRoad && passDiv && passSt;
     });
-  }, [logData]);
+  }, [globalDateData, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 🔥 4. Map Data (Fixed: Special Lane Logic)
+  // 3. Accident Log (กรองวันที่ + เอาเฉพาะอุบัติเหตุทุกหน่วย) -> ใช้สำหรับ Table ขวา
+  const accidentLogData = useMemo(() => {
+    return globalDateData.filter(item => item.category === 'อุบัติเหตุ');
+  }, [globalDateData]);
+
+  // -----------------------------------------------------------------------
+  // 🗺️ MAP DATA (ใช้ Global Data = ไม่สนตัวกรอง กก.)
+  // -----------------------------------------------------------------------
   const mapData = useMemo(() => {
-    const dateFilteredData = rawData.filter(d => {
-        if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
-        return true;
-    }).sort((a, b) => a.timestamp - b.timestamp);
-
     const activeStates = new Map(); 
     const otherEvents = []; 
 
-    dateFilteredData.forEach(row => {
+    // ใช้ globalDateData (เห็นทุกหน่วย)
+    globalDateData.forEach(row => {
         if (!row.lat || !row.lng) return; 
         
         const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
         const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
 
-        // 🟢 FIX: ช่องทางพิเศษ (เช็คทั้ง Keyword และ Category)
+        // 1. ช่องทางพิเศษ (All Units)
         const laneKey = `LANE-${locKey}`;
         const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
         const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
 
-        if (isOpening) {
-            // ถ้าเป็นเปิด ให้สร้างหมุด (แม้จะไม่มีคำว่า "เปิด" ในเนื้อหา แต่ category ใช่ก็เอา)
-            activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
-        } 
-        else if (isClosing) {
-            // ถ้าเป็นปิด ให้ลบหมุดออก
-            activeStates.delete(laneKey);
-        }
+        if (isOpening) activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
+        else if (isClosing) activeStates.delete(laneKey);
 
-        // อุบัติเหตุ (เฉพาะ กก.8)
+        // 2. อุบัติเหตุ (เฉพาะ กก.8 เท่านั้น)
         if (row.category === 'อุบัติเหตุ' && row.div === '8') {
              otherEvents.push({ ...row, pinType: 'event' });
         }
 
-        // เมาแล้วขับ (ทุกหน่วย)
+        // 3. เมาแล้วขับ (All Units - ห้ามกรอง)
+        // Logic เช็คเมาที่แม่นยำ
         if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
              otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
         }
+        
+        // * ตัด Logic แสดงจราจรติดขัดออกตามที่ขอ *
     });
 
     return [...otherEvents, ...activeStates.values()];
-  }, [rawData, filterStartDate, filterEndDate]);
+  }, [globalDateData]);
 
-  // 📊 STATS (Including Special Lane from Map)
+  // -----------------------------------------------------------------------
+  // 📊 STATS (ใช้ Global Data = ไม่สนตัวกรอง กก.)
+  // -----------------------------------------------------------------------
   const stats = useMemo(() => {
-    const drunkCount = rawData.filter(item => {
-        let passDate = true;
-        if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+    // 1. ยอดจับกุมเมา (All Units)
+    const drunkCount = globalDateData.filter(item => {
         const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
         const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
         const isDrunk = allText.includes('เมา');
-        return passDate && isEnforceContext && isDrunk;
+        return isEnforceContext && isDrunk;
     }).length;
 
-    // 🔥 FIX: นับจำนวนช่องทางพิเศษที่เปิดอยู่ (Active) จาก Map Data จริงๆ
-    // (เพราะ Map Data ผ่าน Logic การบวกลบ เปิด/ปิด มาแล้ว)
-    const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
-    
-    // ยอดเปิด/ปิด สะสม (นับจาก Visual Data ตามช่วงเวลา)
-    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
-    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    // 2. ยอดช่องทางพิเศษ (All Units)
+    const openLaneCount = mapData.filter(d => d.pinType === 'lane').length; // Active from map
+    // ปิดช่องทาง (นับจาก Global เพื่อให้เห็นภาพรวม)
+    const closeLaneCount = globalDateData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    const activeLaneCount = openLaneCount;
 
+    // 3. กราฟเปรียบเทียบ (All Units - แยกตาม กก.)
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
+    
     const datasets = mainCats.map(cat => ({
         label: cat,
-        data: divisions.map(div => visualData.filter(d => d.div === div && d.category === cat).length),
+        data: divisions.map(div => {
+            return globalDateData.filter(d => {
+                if (d.div !== div) return false;
+                
+                // Logic รวมเมาเข้าในแท่งจับกุม
+                if (cat === 'จับกุม') {
+                     const allText = `${d.category} ${d.detail} ${d.reportFormat}`.toLowerCase();
+                     const isDrunk = allText.includes('เมา') && (allText.includes('จับกุม') || d.reportFormat === 'ENFORCE');
+                     return d.category === 'จับกุม' || isDrunk;
+                }
+                return d.category === cat;
+            }).length;
+        }),
         backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
         stack: 'Stack 0',
     }));
-    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
-  }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
 
-  // ... (ส่วนอื่นๆ Chart, Report, JSX เหมือนเดิม)
+    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
+  }, [globalDateData, mapData]);
+
+  // Chart Click Handler
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
     const dataIndex = elements[0].index;
@@ -291,9 +295,11 @@ export default function App() {
     else { setFilterDiv(clickedDiv); setFilterSt(''); }
   }, [filterDiv]);
 
+  // Trend Chart (ใช้ Global เหมือนกัน แต่กรองตามช่วงเวลา trendStart/End)
   const trendChartConfig = useMemo(() => {
     const trendFiltered = rawData.filter(item => {
         const inDate = item.date >= trendStart && item.date <= trendEnd;
+        // Trend เอาเฉพาะอุบัติเหตุ กก.8 ตามโจทย์
         const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
         return inDate && visualRule;
     });
@@ -316,6 +322,7 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
+  // Generate Report
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
@@ -447,7 +454,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Controls */}
+      {/* Controls (User Filters) */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
@@ -464,11 +471,18 @@ export default function App() {
         </div>
       )}
 
-      {/* KPI Cards */}
+      {/* KPI Cards (Uses Global Data for Drunk/Accident) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
-        <KPI_Card title="เหตุการณ์ทั้งหมด" value={visualData.length} subtext="กก.8 (เฉพาะอุบัติเหตุ)" icon={ListChecks} accentColor="bg-slate-200" />
-        <KPI_Card title="อุบัติเหตุ (กก.8)" value={visualData.filter(d => d.category === 'อุบัติเหตุ').length} subtext="รวมทั้งหมด" icon={CarFront} accentColor="bg-red-500" />
+        {/* เหตุการณ์ทั้งหมด: ใช้ LogData ที่กรองแล้ว (ตามที่ User อยากดู) */}
+        <KPI_Card title="เหตุการณ์ทั้งหมด" value={logData.length} subtext="ตามตัวกรอง" icon={ListChecks} accentColor="bg-slate-200" />
+        
+        {/* อุบัติเหตุ กก.8: ใช้ Global Data (เพื่อให้เห็นยอดรวม กก.8 เสมอ) */}
+        <KPI_Card title="อุบัติเหตุ (กก.8)" value={globalDateData.filter(d => d.category === 'อุบัติเหตุ' && d.div === '8').length} subtext="ยอดรวม กก.8" icon={CarFront} accentColor="bg-red-500" />
+        
+        {/* เมาแล้วขับ: ใช้ Global Data (ทุกหน่วย) */}
         <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา (ทุกหน่วย)" icon={Wine} accentColor="bg-purple-500" />
+        
+        {/* ช่องทางพิเศษ: ใช้ Global Data */}
         <KPI_Card title="ช่องทางพิเศษ (คงเหลือ)" value={stats.activeLaneCount} subtext={`เปิด ${stats.openLaneCount} / ปิด ${stats.closeLaneCount}`} icon={ArrowRightCircle} accentColor={stats.activeLaneCount > 0 ? "bg-green-500 animate-pulse" : "bg-slate-500"} />
         <KPI_Card title="ปิดช่องทางพิเศษ" value={stats.closeLaneCount} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
@@ -477,19 +491,20 @@ export default function App() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-auto lg:h-[450px]">
          <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col h-[350px] lg:h-full">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
-                <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
+                <MapIcon size={12} className="text-yellow-400"/> แผนที่ (อุบัติเหตุ กก.8 + เมาทุกหน่วย)
             </div>
             <div className="flex-1 w-full h-full"><LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} /></div>
          </div>
          <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col h-[300px] lg:h-full">
-             <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center"><span>สถิติแยกตาม กก.</span><div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded"><MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง</div></h3>
+             <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center"><span>สถิติแยกตาม กก. (รวม)</span><div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded"><MousePointerClick size={12}/> กดเพื่อกรอง</div></h3>
              <div className="flex-1 w-full relative"><Bar data={stats.divChartConfig} options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', onClick: handleChartClick, onHover: (event, chartElement) => { event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default'; }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } }} /></div>
          </div>
       </div>
 
       {/* Logs (Dual Table) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-        {/* Left: General Log */}
+        
+        {/* Left: General Log (กรองตาม User) */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ (Log)</h3><span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">แสดง {logData.length} รายการ</span></div>
              <div className="flex-1 overflow-y-auto custom-scrollbar">
@@ -508,7 +523,8 @@ export default function App() {
                 </table>
              </div>
         </div>
-        {/* Right: Accident Log */}
+
+        {/* Right: Accident Log (All Units - ไม่กรองตาม User) */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
              <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center"><h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500"/> อุบัติเหตุ (ทุกหน่วยงาน)</h3><span className="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded border border-red-800">รวม {accidentLogData.length} รายการ</span></div>
              <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900/30">
@@ -529,7 +545,7 @@ export default function App() {
         </div>
       </div>
 
-      {/* Trend Chart */}
+      {/* Trend Chart (ใช้ Global + Filter ช่วงเวลา) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
