@@ -29,9 +29,12 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; 
-const AUTO_REFRESH_INTERVAL = 60000;
+const AUTO_REFRESH_INTERVAL = 60000; // 1 นาที
 
-// --- Helper: Copy Fallback ---
+// ----------------------------------------------------------------------
+// 🛠️ Helper Functions
+// ----------------------------------------------------------------------
+
 const fallbackCopyTextToClipboard = (text) => {
   var textArea = document.createElement("textarea");
   textArea.value = text;
@@ -50,7 +53,20 @@ const copyToClipboard = async (text) => {
   try { await navigator.clipboard.writeText(text); } catch (err) { fallbackCopyTextToClipboard(text); }
 };
 
-// --- Traffic Logic ---
+// 🧠 วิเคราะห์ข้อความรายงานเพื่อใส่ Emoji (ใช้กับ Hybrid Report)
+const analyzeTrafficText = (text) => {
+  if (!text) return { emoji: "📝", status: "รายงานทั่วไป" };
+  const lowerText = text.toLowerCase();
+  if (lowerText.includes("ติดขัด") || lowerText.includes("หยุดนิ่ง") || lowerText.includes("หนาแน่นมาก")) 
+    return { emoji: "🔴", status: "หนาแน่น/ติดขัด" };
+  if (lowerText.includes("ชะลอตัว") || lowerText.includes("หนาแน่น") || lowerText.includes("รถมาก")) 
+    return { emoji: "🟡", status: "ชะลอตัว/หนาแน่น" };
+  if (lowerText.includes("คล่องตัว") || lowerText.includes("รถน้อย") || lowerText.includes("เบาบาง")) 
+    return { emoji: "✅", status: "คล่องตัว" };
+  return { emoji: "📝", status: "รายงานตามข้อความ" };
+};
+
+// 🚦 คำนวณสภาพจราจรจาก API (เกณฑ์ใหม่: >= 60 คือคล่องตัว)
 const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
@@ -86,6 +102,9 @@ const getTrafficFromCoords = async (start, end) => {
   return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0 }; 
 };
 
+// ----------------------------------------------------------------------
+// 🚀 Main Component
+// ----------------------------------------------------------------------
 export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -99,6 +118,7 @@ export default function App() {
   const [copySuccess, setCopySuccess] = useState(false);
   const [reportDirection, setReportDirection] = useState('outbound'); 
 
+  // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(getThaiDateStr());
   const [customEnd, setCustomEnd] = useState(getThaiDateStr());
@@ -107,10 +127,12 @@ export default function App() {
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
+  // Trend Controls
   const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
   const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
   const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
 
+  // Date Logic
   const { filterStartDate, filterEndDate } = useMemo(() => {
     const today = new Date(); let start = new Date(today); let end = new Date(today);
     if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
@@ -120,6 +142,7 @@ export default function App() {
     return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
   }, [dateRangeOption, customStart, customEnd]);
 
+  // 🔄 Fetch Data (Auto Refresh Supported)
   const fetchData = useCallback(async (isBackground = false) => {
     if (!isBackground) setLoading(true);
     setError(false);
@@ -145,10 +168,11 @@ export default function App() {
     return () => clearInterval(intervalId);
   }, [fetchData]);
 
+  // --- Data Processing ---
   const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
-  // 1. Log Data (Filtered)
+  // 1. Main Log Data (Filtered by User)
   const logData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -161,7 +185,7 @@ export default function App() {
     }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
-  // 2. Accident Data (All Units, Filtered by Date only)
+  // 2. Accident Data (Filtered by Date ONLY - All Units)
   const accidentLogData = useMemo(() => {
     return rawData.filter(item => {
       let passDate = true;
@@ -193,8 +217,15 @@ export default function App() {
     return [...otherEvents, ...activeStates.values()];
   }, [visualData]);
 
+  // 📊 Stats & KPI
   const stats = useMemo(() => {
-    const drunkCount = visualData.filter(d => d.category === 'จับกุม' && d.detail && d.detail.includes('เมา')).length;
+    // Drunk Count: All units, filtered by Date
+    const drunkCount = rawData.filter(item => {
+        let passDate = true;
+        if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+        return passDate && item.category === 'จับกุม' && item.detail && item.detail.includes('เมา');
+    }).length;
+
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = mainCats.map(cat => ({
@@ -204,7 +235,7 @@ export default function App() {
         stack: 'Stack 0',
     }));
     return { drunkCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
-  }, [visualData]);
+  }, [visualData, rawData, filterStartDate, filterEndDate]);
 
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
@@ -240,11 +271,10 @@ export default function App() {
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
 
-  // --- Report Logic ---
+  // 📄 Hybrid Report Generation
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
-    
     try {
       const now = new Date();
       const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
@@ -255,22 +285,30 @@ export default function App() {
       let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
 
       for (const region of TRAFFIC_DATA) {
-        report += `${region.region}\n`;
+        let regionHasRoads = false;
+        let regionReport = `${region.region}\n`;
+        
         for (const road of region.roads) {
-          const manualIssues = rawData.filter(d => 
+          regionHasRoads = true;
+          // 1. Search for Officer's Report first
+          const officerReport = rawData.find(d => 
               d.road === road.id && 
               d.date === todayFilterStr &&
-              (d.category === 'จราจรติดขัด' || d.category === 'ช่องทางพิเศษ' || d.category === 'ปิดช่องทางพิเศษ')
+              (d.category === 'จราจรติดขัด' || d.category === 'สภาพจราจร' || d.category === 'ช่องทางพิเศษ' || d.detail.includes('จราจร') || d.detail.includes('รถ'))
           );
 
           let finalStatus = "";
+          let prefixEmoji = "";
 
-          if (manualIssues.length > 0) {
-              finalStatus = manualIssues.map(i => {
-                  const prefix = i.category === 'ช่องทางพิเศษ' ? 'เปิดช่องทางพิเศษ ' : '';
-                  return `${prefix}${i.detail}`;
-              }).join(', ');
+          if (officerReport) {
+              // 👮‍♂️ Use Officer Report
+              const analysis = analyzeTrafficText(officerReport.detail);
+              const laneInfo = officerReport.category.includes('ช่องทางพิเศษ') ? ' (เปิดช่องทางพิเศษ)' : '';
+              prefixEmoji = analysis.emoji;
+              let cleanDetail = officerReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
+              finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo} (จนท.รายงาน)`;
           } else {
+              // 🤖 Use API Fallback
               const segmentPromises = road.segments.map(async (seg) => {
                   let start = seg.start;
                   let end = seg.end;
@@ -278,34 +316,32 @@ export default function App() {
                   const result = await getTrafficFromCoords(start, end);
                   return { label: seg.label, ...result };
               });
-
               const results = await Promise.all(segmentPromises);
-              const problematicSegments = results.filter(r => r.code >= 2);
-              const errorSegments = results.filter(r => r.code === 0);
+              const problematic = results.filter(r => r.code >= 2);
+              const allGreen = results.every(r => r.code === 1);
+              const apiError = results.every(r => r.code === 0);
 
-              if (problematicSegments.length > 0) {
-                  finalStatus = problematicSegments.map(p => `${p.label} ${p.status}`).join(',\n   • '); 
-                  if (problematicSegments.length > 1) finalStatus = "\n   • " + finalStatus;
-                  if (errorSegments.length > 0) finalStatus += " (บางช่วงตรวจสอบไม่ได้/ปิดถนน)";
-              } else if (results.every(r => r.code === 0)) {
-                  finalStatus = "อยู่ระหว่างตรวจสอบสัญญาณ";
-              } else {
+              if (problematic.length > 0) {
+                  prefixEmoji = "🟡"; 
+                  if (problematic.some(r => r.code >= 3)) prefixEmoji = "🔴";
+                  finalStatus = problematic.map(p => `${p.label} ${p.status}`).join(', ');
+                  finalStatus = `${prefixEmoji} ${finalStatus}`;
+              } else if (allGreen) {
                   finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+              } else if (apiError) {
+                  finalStatus = "⚫ อยู่ระหว่างตรวจสอบข้อมูล";
+              } else {
+                  finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี";
               }
           }
-          report += `- ${road.name} : ${finalStatus}\n`;
+          regionReport += `- ${road.name} : ${finalStatus}\n`;
         }
+        if(regionHasRoads) report += regionReport;
       }
-
       setGeneratedReportText(report);
       setShowReportModal(true);
-
-    } catch (e) {
-      console.error(e);
-      alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
-    } finally {
-      setIsGeneratingReport(false);
-    }
+    } catch (e) { console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน"); } 
+    finally { setIsGeneratingReport(false); }
   };
 
   const handleCopyText = () => {
@@ -328,7 +364,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       
-      {/* Loading & Modal (Same as before) */}
+      {/* 🟢 Loading & Modal Components */}
       {isGeneratingReport && (
         <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
            <div className="bg-slate-800 p-6 rounded-xl border border-slate-600 shadow-2xl flex flex-col items-center gap-4">
@@ -346,31 +382,22 @@ export default function App() {
         <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
           <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
-              <h3 className="text-white font-bold flex items-center gap-2">
-                <ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก {reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)'}
-              </h3>
-              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white p-1">
-                <X size={24}/>
-              </button>
+              <h3 className="text-white font-bold flex items-center gap-2"><ClipboardCopy className="text-yellow-400" size={20}/> รายงานพร้อมคัดลอก {reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)'}</h3>
+              <button onClick={() => setShowReportModal(false)} className="text-slate-400 hover:text-white p-1"><X size={24}/></button>
             </div>
             <div className="p-4 flex-1">
-              <textarea 
-                className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none"
-                value={generatedReportText}
-                readOnly
-              />
+              <textarea className="w-full h-[300px] bg-slate-950 text-slate-300 p-3 rounded-lg text-xs font-mono border border-slate-700 focus:outline-none resize-none" value={generatedReportText} readOnly />
             </div>
             <div className="p-4 bg-slate-900 border-t border-slate-700">
               <button onClick={handleCopyText} className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${copySuccess ? "bg-green-600 text-white hover:bg-green-500" : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"}`}>
-                {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>}
-                {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
+                {copySuccess ? <CheckCircle size={20}/> : <Copy size={20}/>} {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Header & Controls (Same as before) */}
+      {/* 🟢 Header */}
       <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-800 pb-2 gap-2">
         <h1 className="text-xl font-bold text-white flex items-center gap-2">
            <div className="bg-yellow-400 p-1 rounded text-slate-900"><Monitor size={20} /></div>
@@ -382,16 +409,13 @@ export default function App() {
                 <button onClick={() => setReportDirection('outbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'outbound' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาออก</button>
                 <button onClick={() => setReportDirection('inbound')} className={`px-3 py-1 text-xs rounded font-bold transition-all ${reportDirection === 'inbound' ? 'bg-orange-600 text-white shadow' : 'text-slate-400 hover:text-white'}`}>ขาเข้า</button>
              </div>
-             <button onClick={handleGenerateReport} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm">
-                <ClipboardCopy size={14} /> สร้างรายงาน
-             </button>
-             <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}>
-                <Filter size={14} />
-             </button>
+             <button onClick={handleGenerateReport} className="bg-yellow-500 hover:bg-yellow-400 text-slate-900 px-3 py-1.5 rounded flex items-center gap-2 text-xs font-bold transition-all shadow-sm"><ClipboardCopy size={14} /> สร้างรายงาน</button>
+             <button onClick={() => setShowFilters(!showFilters)} className={`text-xs px-3 py-1.5 rounded flex items-center gap-2 transition-all ${showFilters ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-400 border border-slate-700'}`}><Filter size={14} /></button>
              <button onClick={() => fetchData(false)} className="bg-slate-800 text-slate-300 px-3 py-1.5 rounded border border-slate-600 hover:text-yellow-400 flex gap-2 text-xs"><RotateCcw size={14} /></button>
         </div>
       </div>
 
+      {/* 🟢 Controls */}
       {showFilters && (
         <div className="bg-slate-800 p-3 rounded-lg border border-slate-700 mb-4 grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3 items-end shadow-md animate-in slide-in-from-top-2 duration-300">
             <div className="col-span-2 md:col-span-1">
@@ -408,55 +432,38 @@ export default function App() {
         </div>
       )}
 
+      {/* 🟢 KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
         <KPI_Card title="เหตุการณ์ทั้งหมด" value={visualData.length} subtext="กก.8 (เฉพาะอุบัติเหตุ)" icon={ListChecks} accentColor="bg-slate-200" />
         <KPI_Card title="อุบัติเหตุ (กก.8)" value={visualData.filter(d => d.category === 'อุบัติเหตุ').length} subtext="รวมทั้งหมด" icon={CarFront} accentColor="bg-red-500" />
-        <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา" icon={Wine} accentColor="bg-purple-500" />
+        <KPI_Card title="จับกุมเมาแล้วขับ" value={stats.drunkCount} subtext="คดีเมาสุรา (ทุกหน่วย)" icon={Wine} accentColor="bg-purple-500" />
         <KPI_Card title="เปิดช่องทางพิเศษ" value={visualData.filter(d => d.category === 'ช่องทางพิเศษ').length} subtext="ยอดเปิด (ครั้ง)" icon={ArrowRightCircle} accentColor="bg-green-500" />
         <KPI_Card title="ปิดช่องทางพิเศษ" value={visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length} subtext="ยอดปิด (ครั้ง)" icon={StopCircle} accentColor="bg-slate-600" />
       </div>
 
-      {/* Map & Chart */}
+      {/* 🟢 Map & Chart */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-4 h-auto lg:h-[450px]">
          <div className="lg:col-span-8 bg-slate-800 rounded-lg border border-slate-700 relative overflow-hidden shadow-md flex flex-col h-[350px] lg:h-full">
             <div className="absolute top-2 left-2 z-[400] bg-slate-900/90 px-3 py-1.5 rounded border border-slate-600 text-[10px] text-white font-bold flex items-center gap-2 shadow-sm">
                 <MapIcon size={12} className="text-yellow-400"/> ภาพรวม (อุบัติเหตุเฉพาะ กก.8)
             </div>
-            <div className="flex-1 w-full h-full">
-                <LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} />
-            </div>
+            <div className="flex-1 w-full h-full"><LongdoMapViewer data={mapData} apiKey={LONGDO_API_KEY} /></div>
          </div>
-
          <div className="lg:col-span-4 bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md flex flex-col h-[300px] lg:h-full">
              <h3 className="text-sm font-bold text-white mb-2 pb-2 border-b border-slate-600 flex justify-between items-center">
                 <span>สถิติแยกตาม กก.</span> 
-                <div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded">
-                   <MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง
-                </div>
+                <div className="flex items-center gap-1 text-[10px] text-yellow-400 bg-slate-900 px-2 py-0.5 rounded"><MousePointerClick size={12}/> กดที่กราฟเพื่อกรอง</div>
              </h3>
              <div className="flex-1 w-full relative">
-                <Bar 
-                  data={stats.divChartConfig} 
-                  options={{ 
-                    responsive: true, 
-                    maintainAspectRatio: false, 
-                    indexAxis: 'y', 
-                    onClick: handleChartClick,
-                    onHover: (event, chartElement) => {
-                       event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
-                    },
-                    plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, 
-                    scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } 
-                  }} 
-                />
+                <Bar data={stats.divChartConfig} options={{ responsive: true, maintainAspectRatio: false, indexAxis: 'y', onClick: handleChartClick, onHover: (event, chartElement) => { event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default'; }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 9 }, color: '#94a3b8' } } }, scales: { x: { stacked: true, grid: { color: '#1e293b' }, ticks: { color: '#64748b' } }, y: { stacked: true, grid: { display: false }, ticks: { color: '#e2e8f0', font: { weight: 'bold' } } } } }} />
              </div>
          </div>
       </div>
 
-      {/* 🚀 LOGS SECTION (Double Table) */}
+      {/* 🟢 DATA LOGS (Dual Table) */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         
-        {/* 1. ตาราง Log รวม */}
+        {/* Left: General Log */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
              <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center">
                 <h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500"/> รายการเหตุการณ์ (Log)</h3>
@@ -475,34 +482,18 @@ export default function App() {
                   <tbody className="divide-y divide-slate-700/50">
                     {logData.length > 0 ? logData.map((item, idx) => (
                       <tr key={idx} className={`hover:bg-slate-700/30 transition-colors ${item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                            <div className="text-yellow-400 font-mono font-bold">{item.time} น.</div>
-                            <div className="text-[10px] text-slate-500">{item.date}</div>
-                        </td>
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                            <span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">
-                                กก.{item.div} ส.ทล.{item.st}
-                            </span>
-                        </td>
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow-sm" style={{ backgroundColor: CATEGORY_COLORS[item.category] || '#64748b' }}>
-                                {item.category}
-                            </span>
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                            <div className="line-clamp-2" title={item.detail}>{item.detail}</div>
-                            <div className="text-[10px] text-slate-400 mt-1">ทล.{item.road} กม.{item.km} {item.dir}</div>
-                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap"><div className="text-yellow-400 font-mono font-bold">{item.time} น.</div><div className="text-[10px] text-slate-500">{item.date}</div></td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap"><span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">กก.{item.div} ส.ทล.{item.st}</span></td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap"><span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow-sm" style={{ backgroundColor: CATEGORY_COLORS[item.category] || '#64748b' }}>{item.category}</span></td>
+                        <td className="px-3 py-3 align-top"><div className="line-clamp-2" title={item.detail}>{item.detail}</div><div className="text-[10px] text-slate-400 mt-1">ทล.{item.road} กม.{item.km} {item.dir}</div></td>
                       </tr>
-                    )) : (
-                      <tr><td colSpan="4" className="p-12 text-center text-slate-500">ไม่พบข้อมูล</td></tr>
-                    )}
+                    )) : <tr><td colSpan="4" className="p-12 text-center text-slate-500">ไม่พบข้อมูล</td></tr>}
                   </tbody>
                 </table>
              </div>
         </div>
 
-        {/* 🚀 2. ตารางอุบัติเหตุ (ปรับปรุงใหม่: แยกพิกัด, เพิ่มรายละเอียด) */}
+        {/* Right: Accident Log (All Units + Detail) */}
         <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
              <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center">
                 <h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500"/> อุบัติเหตุ (ทุกหน่วยงาน)</h3>
@@ -521,60 +512,32 @@ export default function App() {
                   <tbody className="divide-y divide-slate-700/50">
                     {accidentLogData.length > 0 ? accidentLogData.map((item, idx) => (
                       <tr key={idx} className="hover:bg-red-900/10 transition-colors">
-                        {/* เวลา */}
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                            <div className="text-red-400 font-mono font-bold">{item.time} น.</div>
-                            <div className="text-[10px] text-slate-500">{item.date}</div>
-                        </td>
-                        {/* หน่วย */}
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                            <span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">
-                                กก.{item.div} ส.ทล.{item.st}
-                            </span>
-                        </td>
-                        {/* 🚀 จุดเกิดเหตุ (แยกออกมาแล้ว) */}
-                        <td className="px-3 py-3 align-top">
-                            <div className="text-slate-300 font-bold flex items-start gap-1">
-                                <MapPin size={12} className="mt-0.5 text-yellow-500 flex-shrink-0"/>
-                                <span>ทล.{item.road}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400 pl-4">
-                                กม.{item.km} {item.dir}
-                            </div>
-                        </td>
-                        {/* 🚀 รายละเอียด (เต็มๆ ไม่ตัดคำ) */}
-                        <td className="px-3 py-3 align-top">
-                            <div className="text-slate-200 whitespace-pre-wrap leading-relaxed">{item.detail}</div>
-                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap"><div className="text-red-400 font-mono font-bold">{item.time} น.</div><div className="text-[10px] text-slate-500">{item.date}</div></td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap"><span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">กก.{item.div} ส.ทล.{item.st}</span></td>
+                        <td className="px-3 py-3 align-top"><div className="text-slate-300 font-bold flex items-start gap-1"><MapPin size={12} className="mt-0.5 text-yellow-500 flex-shrink-0"/><span>ทล.{item.road}</span></div><div className="text-[10px] text-slate-400 pl-4">กม.{item.km} {item.dir}</div></td>
+                        <td className="px-3 py-3 align-top"><div className="text-slate-200 whitespace-pre-wrap leading-relaxed">{item.detail}</div></td>
                       </tr>
-                    )) : (
-                      <tr><td colSpan="4" className="p-12 text-center text-slate-500">ไม่พบอุบัติเหตุในช่วงเวลานี้</td></tr>
-                    )}
+                    )) : <tr><td colSpan="4" className="p-12 text-center text-slate-500">ไม่พบอุบัติเหตุในช่วงเวลานี้</td></tr>}
                   </tbody>
                 </table>
              </div>
         </div>
-
       </div>
 
-      {/* Trend Chart (ล่างสุด) */}
+      {/* 🟢 Trend Chart (Bottom) */}
       <div className="grid grid-cols-1 mb-4">
         <div className="bg-slate-800 p-4 rounded-lg border border-slate-700 shadow-md">
             <div className="flex flex-wrap justify-between items-center mb-4 border-b border-slate-700 pb-2">
-                <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                    <TrendingUp size={16} className="text-green-400"/> เปรียบเทียบรายวัน (อุบัติเหตุเฉพาะ กก.8)
-                </h3>
-                {/* ... (Trend Chart Controls คงเดิม) ... */}
+                <h3 className="text-sm font-bold text-white flex items-center gap-2"><TrendingUp size={16} className="text-green-400"/> เปรียบเทียบรายวัน (อุบัติเหตุเฉพาะ กก.8)</h3>
+                <div className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">เลือกช่วงเวลา:</span>
+                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendStart} onChange={e => setTrendStart(e.target.value)} />
+                    <span className="text-slate-500 text-xs">-</span>
+                    <input type="date" className="bg-slate-900 border border-slate-600 text-white text-[10px] p-1.5 rounded focus:border-yellow-500 outline-none" value={trendEnd} onChange={e => setTrendEnd(e.target.value)} />
+                </div>
             </div>
             <div className="h-[240px] w-full relative">
-                 <Bar 
-                    data={trendChartConfig} 
-                    options={{
-                        responsive: true, maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } },
-                        scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } }
-                    }}
-                 />
+                 <Bar data={trendChartConfig} options={{ responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { color: '#94a3b8', boxWidth: 10, font: { size: 10 } } }, tooltip: { mode: 'index', intersect: false } }, scales: { x: { stacked: true, grid: { display: false }, ticks: { color: '#94a3b8' } }, y: { stacked: true, grid: { color: '#1e293b', borderDash: [5, 5] }, ticks: { color: '#64748b' } } } }} />
             </div>
         </div>
       </div>
