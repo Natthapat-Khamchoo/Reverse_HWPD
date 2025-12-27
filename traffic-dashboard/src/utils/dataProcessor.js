@@ -13,7 +13,8 @@ export const processSheetData = (rawData, sourceFormat) => {
     };
 
     // 1. Date & Time Parsing
-    const timeRaw = getVal(['เวลา', 'time']); 
+    const timeRaw = getVal(['เวลา', 'time']);
+    if (timeRaw) timeRaw = timeRaw.replace(/\./g, ':');
     const dateRaw = getVal(['วันที่', 'date']);
     const timestampRaw = getVal(['timestamp', 'วันที่ เวลา']);
     const checkStr = (timestampRaw + dateRaw);
@@ -41,7 +42,11 @@ export const processSheetData = (rawData, sourceFormat) => {
     else if (timestampRaw) dateStr = parseDateParts(timestampRaw.split(' ')[0]);
     if (!dateStr || dateStr.length < 10) return null;
 
-    if (timeRaw) timeStr = formatTime24(timeRaw);
+    if (timeRaw) {
+        // ✅ เพิ่ม Logic สำรอง กรณี function formatTime24 อาจจะรับค่าจุดไม่ได้
+        // ถ้า import มาแก้ไม่ได้ ให้เขียน logic ง่ายๆ ตรงนี้แทน หรือส่ง timeRaw ที่ replace แล้วไป
+        timeStr = formatTime24(timeRaw); 
+    }
     else if (timestampRaw) {
         const parts = timestampRaw.split(' ');
         if (parts.length >= 2) timeStr = formatTime24(parts.slice(1).join(' '));
