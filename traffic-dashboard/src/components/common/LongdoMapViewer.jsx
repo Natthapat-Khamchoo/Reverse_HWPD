@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { CATEGORY_COLORS, DIVISION_COLORS } from '../constants/config';
+import { CATEGORY_COLORS, DIVISION_COLORS } from '../../constants/config';
 
 const LongdoMapViewer = ({ data, apiKey }) => {
   const mapInstance = useRef(null);

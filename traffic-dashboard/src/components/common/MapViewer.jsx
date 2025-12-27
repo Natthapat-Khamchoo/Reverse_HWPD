@@ -2,7 +2,7 @@ import React from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
 import { MapPin } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
-import { DIVISION_COLORS, CATEGORY_COLORS } from '../constants/config'; // หรือ import จากไฟล์ที่คุณเก็บ
+import { DIVISION_COLORS, CATEGORY_COLORS } from '../../constants/config'; // หรือ import จากไฟล์ที่คุณเก็บ
 
 const MapViewer = ({ data }) => {
   return (
