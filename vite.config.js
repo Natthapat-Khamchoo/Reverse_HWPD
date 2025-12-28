@@ -5,10 +5,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000, // กำหนด port เริ่มต้น (เปลี่ยนได้ตามต้องการ)
-    open: true, // เปิด browser อัตโนมัติเมื่อสั่ง run
-  },
-  build: {
-    outDir: 'dist',
+    proxy: {
+      '/api/longdo': {
+        target: 'https://api.longdo.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/longdo/, '')
+      }
+    }
   }
 })

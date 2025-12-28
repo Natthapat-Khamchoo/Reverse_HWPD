@@ -1,356 +1,287 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { 
-  Map as MapIcon, 
-  RotateCcw, 
-  FileText, 
-  Clock, 
-  ListChecks, 
-  AlertTriangle, 
-  TrafficCone, 
-  Activity 
-} from 'lucide-react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
-  Chart as ChartJS,
-  ArcElement,
-  Tooltip,
-  Legend,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  Title
+  Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend
 } from 'chart.js';
-import { Doughnut, Bar } from 'react-chartjs-2';
 
-// -----------------------------------------------------------------------------
-// ⚠️ ส่วนที่ 1: การตั้งค่าแผนที่ GIS (เปิดใช้งานแล้ว)
-// -----------------------------------------------------------------------------
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-// -----------------------------------------------------------------------------
+// Config & Utils
+import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
+import { getThaiDateStr, parseCSV } from './utils/helpers';
+import { processSheetData } from './utils/dataProcessor';
+import { generateTrafficReport } from './utils/reportGenerator';
 
-// Register ChartJS components
-ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
+// Components
+import SystemLoader from './components/common/SystemLoader';
+import DashboardHeader from './components/dashboard/DashboardHeader';
+import FilterSection from './components/dashboard/FilterSection';
+import StatCards from './components/dashboard/StatCards';
+import MapAndChartSection from './components/dashboard/MapAndChartSection';
+import LogTablesSection from './components/dashboard/LogTablesSection';
+import TrendChartSection from './components/dashboard/TrendChartSection';
+import ReportModal from './components/report/ReportModal';
 
-// --- Configuration ---
-// Link CSV ของคุณ
-const GOOGLE_SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRwdOo14pW38cMImXNdEHIH7OTshrYf_6dGpEENgnYTa1kInJgosqeFGcpMpiOrq4Jw0nTJUn-02ogh/pub?output=csv"; 
+// Registration
+ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
+ChartJS.defaults.color = '#94a3b8';
+ChartJS.defaults.borderColor = '#334155';
+ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
-// --- Constants ---
-const DIVISION_COLORS = {
-  "1": "#EF4444", "2": "#3B82F6", "3": "#10B981", "4": "#F59E0B",
-  "5": "#8B5CF6", "6": "#EC4899", "7": "#06B6D4", "8": "#6366F1"
-};
-
-const ORG_STRUCTURE = { "1": 6, "2": 6, "3": 5, "4": 5, "5": 6, "6": 6, "7": 5, "8": 4 };
-
-// Mock Data
-const MOCK_DATA = [
-  { id: 1, date: '2025-12-12', time: '08:30', div: '1', st: '1', type: 'อุบัติเหตุใหญ่', road: 'ทล.1', km: '55', dir: 'ขาออก', traffic: 'หยุดนิ่ง', tailback: '2 กม.', lat: 14.215, lng: 100.700 },
-];
-
-// --- Helper Functions ---
-const parseCSV = (text) => {
-  const lines = text.split('\n').filter(l => l.trim());
-  const headers = lines[0].split(',').map(h => h.trim().replace(/^['"]+|['"]+$/g, ''));
-  return lines.slice(1).map(line => {
-    const values = [];
-    let match;
-    const regex = /(?:^|,)(?:"([^"]*)"|([^",]*))/g;
-    while ((match = regex.exec(line)) !== null) {
-        if (match.index === regex.lastIndex) regex.lastIndex++; 
-        if (match[0] === '' && values.length >= headers.length) break;
-        let val = match[1] !== undefined ? match[1] : match[2];
-        values.push(val ? val.trim() : '');
-    }
-    return headers.reduce((obj, header, index) => {
-      obj[header] = values[index] || '';
-      return obj;
-    }, {});
-  });
-};
-
-const processSheetData = (rawData) => {
-  return rawData.map((row, index) => {
-    let dateStr = '', timeStr = '';
-    const dateTimeRaw = row['วันที่ เวลา'] || row['Timestamp'] || '';
-    if (dateTimeRaw) {
-      const parts = dateTimeRaw.split(' ');
-      if (parts.length >= 2) {
-        let dPart = parts[0];
-        if (dPart.includes('/')) {
-           const [d, m, y] = dPart.split('/');
-           const year = parseInt(y) > 2400 ? parseInt(y) - 543 : y;
-           dateStr = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-        } else { dateStr = dPart; }
-        timeStr = parts[1].substring(0, 5);
-      } else { dateStr = dateTimeRaw; timeStr = '00:00'; }
-    }
-
-    let div = '1', st = '1';
-    const unitRaw = row['หน่วยงาน'] || '';
-    const divMatch = unitRaw.match(/กก\.?\s*(\d+)/) || unitRaw.match(/\/(\d+)/); 
-    if (divMatch) div = divMatch[1];
-    const stMatch = unitRaw.match(/ส\.ทล\.?\s*(\d+)/) || unitRaw.match(/^(\d+)\//);
-    if (stMatch) st = stMatch[1];
-
-    let lat = parseFloat(row['Latitude']);
-    let lng = parseFloat(row['Longitude']);
-
-    if (isNaN(lat) || isNaN(lng)) {
-      const road = row['ทล.'] || '';
-      if (road.includes('1')) { lat = 14.5 + Math.random(); lng = 100.8 + Math.random()*0.2; }
-      else if (road.includes('2')) { lat = 14.8 + Math.random(); lng = 101.5 + Math.random()*0.2; }
-      else if (road.includes('4')) { lat = 13.0 - Math.random(); lng = 99.9 + Math.random()*0.2; }
-      else if (road.includes('9')) { lat = 13.9 + Math.random()*0.2; lng = 100.7 + Math.random()*0.2; }
-      else { lat = 13.75; lng = 100.50; }
-    }
-
-    return {
-      id: index,
-      date: dateStr || new Date().toISOString().split('T')[0],
-      time: timeStr || '00:00',
-      div: div, st: st,
-      type: row['เหตุการณ์'] || 'ทั่วไป',
-      road: row['ทล.'] || '-',
-      km: row['กม.'] || '-',
-      dir: row['ทิศทาง'] || '-',
-      traffic: row['สภาพการจราจร'] || '-',
-      tailback: row['ท้ายแถวสะสม'] || '-',
-      lat: lat, lng: lng
-    };
-  });
-};
-
-const KPI_Card = ({ title, value, subtext, icon: Icon, colorClass, bgClass }) => (
-  <div className={`bg-white rounded-xl p-6 shadow-sm border-l-4 ${colorClass} flex justify-between items-center transition hover:shadow-md`}>
-    <div>
-      <p className="text-gray-500 text-sm font-medium">{title}</p>
-      <p className={`text-3xl font-bold mt-1 ${colorClass.replace('border-', 'text-')}`}>{value}</p>
-      <p className="text-xs text-gray-400 mt-1">{subtext}</p>
-    </div>
-    <div className={`p-3 rounded-full ${bgClass}`}>
-      <Icon size={24} className={colorClass.replace('border-', 'text-')} />
-    </div>
-  </div>
-);
-
-// -----------------------------------------------------------------------------
-// ⚠️ ส่วนที่ 2: GIS Map Component (เปิดใช้งานแล้ว)
-// -----------------------------------------------------------------------------
-
-const MapAutoFit = ({ markers }) => {
-  const map = useMap();
-  useEffect(() => {
-    if (markers.length > 0) {
-      const bounds = markers.map(m => [m.lat, m.lng]);
-      const validBounds = bounds.filter(b => !isNaN(b[0]) && !isNaN(b[1]));
-      if (validBounds.length > 0) map.fitBounds(validBounds, { padding: [50, 50] });
-    }
-  }, [markers, map]);
-  return null;
-};
-
-const LeafletMapComponent = ({ data }) => {
-  // Default Center (Bangkok)
-  const defaultCenter = [13.75, 100.5];
-  
-  return (
-    <MapContainer center={defaultCenter} zoom={6} style={{ height: '100%', width: '100%' }}>
-      <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OpenStreetMap contributors' />
-      {data.map(item => (
-        <CircleMarker key={item.id} center={[item.lat, item.lng]} radius={8} pathOptions={{ color: 'white', fillColor: DIVISION_COLORS[item.div] || '#9CA3AF', fillOpacity: 0.8, weight: 2 }}>
-          <Popup>
-            <div className="font-sans text-sm min-w-[150px]">
-              <strong className="block mb-1 text-base border-b pb-1" style={{ color: DIVISION_COLORS[item.div] }}>กก.{item.div} ส.ทล.{item.st}</strong>
-              <div className="grid grid-cols-[60px_1fr] gap-y-1 mt-2 text-slate-700">
-                <span className="text-slate-500">เหตุ:</span><span className="font-medium">{item.type}</span>
-                <span className="text-slate-500">จุด:</span><span className="font-medium">{item.road} กม.{item.km}</span>
-                <span className="text-slate-500">ทิศทาง:</span><span>{item.dir}</span>
-                <span className="text-slate-500">เวลา:</span><span>{item.time} น.</span>
-                <span className="text-slate-500">จราจร:</span><span className={item.traffic === 'หยุดนิ่ง' ? 'text-red-600 font-bold' : ''}>{item.traffic}</span>
-                {item.tailback && item.tailback !== '-' && <><span className="text-slate-500">ท้ายแถว:</span><span className="text-red-600 font-bold">{item.tailback}</span></>}
-              </div>
-            </div>
-          </Popup>
-        </CircleMarker>
-      ))}
-      <MapAutoFit markers={data} />
-    </MapContainer>
-  );
-};
+const LONGDO_API_KEY = import.meta.env.VITE_LONGDO_API_KEY || "43c345d5dae4db42926bd41ae0b5b0fa";
+const AUTO_REFRESH_INTERVAL = 60000;
 
 export default function App() {
   const [rawData, setRawData] = useState([]);
   const [loading, setLoading] = useState(true);
-  
-  // Filters
-  const [filterDate, setFilterDate] = useState(new Date().toISOString().split('T')[0]); 
+  const [error, setError] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  const [isGeneratingReport, setIsGeneratingReport] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [generatedReportText, setGeneratedReportText] = useState("");
+  const [copySuccess, setCopySuccess] = useState(false);
+  const [reportDirection, setReportDirection] = useState('outbound');
+
+  // Controls
+  const [dateRangeOption, setDateRangeOption] = useState('today');
+  const [customStart, setCustomStart] = useState(getThaiDateStr());
+  const [customEnd, setCustomEnd] = useState(getThaiDateStr());
   const [filterDiv, setFilterDiv] = useState('');
   const [filterSt, setFilterSt] = useState('');
-  const [filterType, setFilterType] = useState('');
-  const [filterRoad, setFilterRoad] = useState('');
-  const [filterDir, setFilterDir] = useState('');
-  const [filterTraffic, setFilterTraffic] = useState('');
-  
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      if (!GOOGLE_SHEET_CSV_URL) {
-        setRawData(MOCK_DATA); setFilterDate('2025-12-12'); setLoading(false);
-        return;
-      }
-      try {
-        const response = await fetch(GOOGLE_SHEET_CSV_URL);
-        const text = await response.text();
-        const mappedData = processSheetData(parseCSV(text)); 
-        if (mappedData.length > 0) {
-          setRawData(mappedData);
-          const validDates = mappedData.map(d => d.date).filter(d => d && !isNaN(new Date(d).getTime()));
-          if(validDates.length > 0) setFilterDate(validDates.sort((a,b) => new Date(b) - new Date(a))[0]);
-        } else { setRawData(MOCK_DATA); }
-      } catch (error) { console.error("Fetch error:", error); setRawData(MOCK_DATA); } 
-      finally { setLoading(false); }
-    };
-    fetchData();
+  const [selectedCategories, setSelectedCategories] = useState([]);
+  const [selectedRoads, setSelectedRoads] = useState([]);
+
+  // Trend Controls
+  const defaultTrendStart = new Date(); defaultTrendStart.setDate(defaultTrendStart.getDate() - 6);
+  const [trendStart, setTrendStart] = useState(getThaiDateStr(defaultTrendStart));
+  const [trendEnd, setTrendEnd] = useState(getThaiDateStr());
+
+  // Date Logic
+  const { filterStartDate, filterEndDate } = useMemo(() => {
+    const today = new Date(); let start = new Date(today); let end = new Date(today);
+    if (dateRangeOption === 'yesterday') { start.setDate(today.getDate() - 1); end.setDate(today.getDate() - 1); }
+    else if (dateRangeOption === 'last7') { start.setDate(today.getDate() - 6); }
+    else if (dateRangeOption === 'all') { return { filterStartDate: null, filterEndDate: null }; }
+    else if (dateRangeOption === 'custom') { return { filterStartDate: customStart, filterEndDate: customEnd }; }
+    return { filterStartDate: getThaiDateStr(start), filterEndDate: getThaiDateStr(end) };
+  }, [dateRangeOption, customStart, customEnd]);
+
+  // 🔄 Fetch Data
+  const fetchData = useCallback(async (isBackground = false) => {
+    if (!isBackground) setLoading(true);
+    setError(false);
+    try {
+      const timestamp = new Date().getTime();
+      const [resTraffic, resEnforce, resSafety] = await Promise.all([
+        fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
+        fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
+        fetch(`${SHEET_SAFETY_URL}&t=${timestamp}`).then(r => r.text())
+      ]);
+      const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
+      const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
+      const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
+      setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
+      setLastUpdated(new Date());
+    } catch (err) { console.error(err); setError(true); }
+    finally { if (!isBackground) setTimeout(() => setLoading(false), 800); }
   }, []);
 
-  // 1. ข้อมูลสำหรับ "ตาราง" (แสดงทั้งหมด รวมถึง 'ปกติ')
-  const tableData = useMemo(() => {
-    return rawData.filter(item => 
-      (!filterDate || item.date === filterDate) &&
-      (!filterDiv || item.div === filterDiv) &&
-      (!filterSt || item.st === filterSt) &&
-      (!filterType || item.type === filterType) &&
-      (!filterRoad || item.road === filterRoad) &&
-      (!filterDir || item.dir === filterDir) &&
-      (!filterTraffic || item.traffic === filterTraffic)
-    );
-  }, [rawData, filterDate, filterDiv, filterSt, filterType, filterRoad, filterDir, filterTraffic]);
+  useEffect(() => {
+    fetchData(false);
+    const intervalId = setInterval(() => fetchData(true), AUTO_REFRESH_INTERVAL);
+    return () => clearInterval(intervalId);
+  }, [fetchData]);
 
-  // 2. ข้อมูลสำหรับ "กราฟและแผนที่" (กรอง 'ปกติ' ออก)
-  const visualData = useMemo(() => {
-    return tableData.filter(item => 
-      !item.type.includes('ปกติ') && 
-      item.type !== 'เหตุการณ์ปกติ'
-    );
-  }, [tableData]);
-
-  // Chart Data ใช้ visualData (ไม่มี 'ปกติ')
-  const typeChartData = useMemo(() => {
-    const counts = {}; visualData.forEach(d => { counts[d.type] = (counts[d.type] || 0) + 1; });
-    return {
-      labels: Object.keys(counts),
-      datasets: [{ data: Object.values(counts), backgroundColor: ['#EF4444', '#F59E0B', '#10B981', '#64748B'], borderWidth: 0 }]
-    };
-  }, [visualData]);
-
-  const roadChartData = useMemo(() => {
-    const counts = {}; visualData.forEach(d => { counts[d.road] = (counts[d.road] || 0) + 1; });
-    const sorted = Object.entries(counts).sort((a,b) => b[1] - a[1]).slice(0, 5);
-    return {
-      labels: sorted.map(i => i[0]),
-      datasets: [{ label: 'จำนวนเหตุการณ์', data: sorted.map(i => i[1]), backgroundColor: '#3B82F6', borderRadius: 4 }]
-    };
-  }, [visualData]);
-
+  // --- Data Processing ---
+  const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10 && r !== 'ไม่ระบุ'))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
-  const dirOptions = useMemo(() => Array.from(new Set(rawData.map(d => d.dir).filter(Boolean))).sort(), [rawData]);
 
-  const handleReset = () => {
-    setFilterDiv(''); setFilterSt(''); setFilterType(''); setFilterRoad(''); setFilterDir(''); setFilterTraffic('');
+  // 1. Log Data (Filtered)
+  const logData = useMemo(() => {
+    return rawData.filter(item => {
+      let passDate = true;
+      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+
+      let passCategory = true;
+      if (selectedCategories.length > 0) {
+        passCategory = selectedCategories.includes(item.category);
+        if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') {
+          passCategory = true;
+        }
+      }
+
+      const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
+      const passDiv = !filterDiv || item.div === filterDiv;
+      const passSt = !filterSt || item.st === filterSt;
+      return passDate && passCategory && passRoad && passDiv && passSt;
+    }).sort((a, b) => b.timestamp - a.timestamp);
+  }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
+
+  // 2. Accident Data
+  const accidentLogData = useMemo(() => {
+    return rawData.filter(item => {
+      let passDate = true;
+      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+      return passDate && item.category === 'อุบัติเหตุ';
+    }).sort((a, b) => b.timestamp - a.timestamp);
+  }, [rawData, filterStartDate, filterEndDate]);
+
+  // 3. Visual Data
+  const visualData = useMemo(() => {
+    return logData.filter(item => {
+      if (item.category === 'อุบัติเหตุ') return item.div === '8';
+      return true;
+    });
+  }, [logData]);
+
+  // 4. Map Data
+  const mapData = useMemo(() => {
+    const dateFilteredData = rawData.filter(d => {
+      if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
+      return true;
+    }).sort((a, b) => a.timestamp - b.timestamp);
+
+    const activeStates = new Map();
+    const otherEvents = [];
+
+    dateFilteredData.forEach(row => {
+      if (!row.lat || !row.lng) return;
+
+      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+      const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
+      const laneKey = `LANE-${locKey}`;
+      const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
+      const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
+
+      if (isOpening) {
+        activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
+      } else if (isClosing) {
+        activeStates.delete(laneKey);
+      }
+
+      if (row.category === 'อุบัติเหตุ' && row.div === '8') {
+        otherEvents.push({ ...row, pinType: 'event' });
+      }
+
+      if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
+        otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
+      }
+    });
+
+    return [...otherEvents, ...activeStates.values()];
+  }, [rawData, filterStartDate, filterEndDate]);
+
+  // 📊 STATS
+  const stats = useMemo(() => {
+    const drunkCount = rawData.filter(item => {
+      let passDate = true;
+      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+      const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
+      const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
+      const isDrunk = allText.includes('เมา');
+      return passDate && isEnforceContext && isDrunk;
+    }).length;
+
+    const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
+    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+
+    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
+    const datasets = mainCats.map(cat => ({
+      label: cat,
+      data: divisions.map(div => visualData.filter(d => d.div === div && d.category === cat).length),
+      backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
+      stack: 'Stack 0',
+    }));
+    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
+  }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
+
+  const handleChartClick = useCallback((event, elements) => {
+    if (!elements || elements.length === 0) return;
+    const dataIndex = elements[0].index;
+    const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
+    const clickedDiv = divisions[dataIndex];
+    if (filterDiv === clickedDiv) { setFilterDiv(''); setFilterSt(''); }
+    else { setFilterDiv(clickedDiv); setFilterSt(''); }
+  }, [filterDiv]);
+
+  const trendChartConfig = useMemo(() => {
+    const trendFiltered = rawData.filter(item => {
+      const inDate = item.date >= trendStart && item.date <= trendEnd;
+      const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
+      return inDate && visualRule;
+    });
+    const labels = [];
+    let curr = new Date(trendStart);
+    const end = new Date(trendEnd);
+    while (curr <= end) {
+      labels.push(getThaiDateStr(curr));
+      curr.setDate(curr.getDate() + 1);
+    }
+    const categories = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
+    const datasets = categories.map(cat => {
+      return {
+        label: cat,
+        data: labels.map(date => trendFiltered.filter(item => item.date === date && item.category === cat).length),
+        backgroundColor: CATEGORY_COLORS[cat] || '#94a3b8',
+        stack: 'stack1',
+      };
+    });
+    return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
+  }, [rawData, trendStart, trendEnd]);
+
+  const handleGenerateReport = async () => {
+    setIsGeneratingReport(true);
+    setCopySuccess(false);
+    try {
+      const report = await generateTrafficReport(rawData, reportDirection);
+      setGeneratedReportText(report);
+      setShowReportModal(true);
+    } catch (e) {
+      console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
+    } finally {
+      setIsGeneratingReport(false);
+    }
   };
 
+  const handleCopyText = () => {
+    const textToCopy = generatedReportText;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(textToCopy).then(() => setCopySuccess(true));
+    } else {
+      // Fallback
+      var textArea = document.createElement("textarea");
+      textArea.value = textToCopy;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try { document.execCommand('copy'); setCopySuccess(true); }
+      catch (err) { console.error(err); }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  if (loading) return <SystemLoader />;
+  if (error) return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
+      <div className="text-xl text-red-400 mb-4">❌ ไม่สามารถโหลดข้อมูลได้</div>
+      <button
+        onClick={() => fetchData(false)}
+        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
+      >
+        ลองใหม่
+      </button>
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-6 font-sans text-slate-800">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold text-slate-800 flex items-center gap-3">
-            <img 
-              src="https://cib.go.th/backend/uploads/medium_logo_cib_4_2x_9f2da10e9f_a7828c9ca0.png" 
-              alt="Logo" 
-              className="w-12 h-12" 
-            />
-            ศูนย์ปฏิบัติการจราจร บก.ทล. (Reverse Dashboard)
-          </h1>
-        </div>
-        <div className="flex gap-2">
-          <button onClick={handleReset} className="bg-white text-slate-700 px-4 py-2 rounded-lg hover:bg-slate-100 border border-slate-200 shadow-sm transition flex items-center gap-2 text-sm font-medium">
-            <RotateCcw size={16} /> Reset
-          </button>
-        </div>
-      </div>
-
-      {/* Filters Bar */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 mb-6">
-        <h3 className="text-sm font-bold text-slate-700 mb-3 flex items-center gap-2"><ListChecks size={16} /> ตัวกรองข้อมูล</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
-          <div><label className="text-xs text-slate-500 block mb-1">วันที่</label><input type="date" className="w-full p-2 border rounded text-sm" value={filterDate} onChange={e => setFilterDate(e.target.value)} /></div>
-          <div><label className="text-xs text-slate-500 block mb-1">กองกำกับการ</label><select className="w-full p-2 border rounded text-sm" value={filterDiv} onChange={e => { setFilterDiv(e.target.value); setFilterSt(''); }}><option value="">ทั้งหมด</option>{Object.keys(ORG_STRUCTURE).map(k => <option key={k} value={k}>กก.{k}</option>)}</select></div>
-          <div><label className="text-xs text-slate-500 block mb-1">สถานี</label><select className="w-full p-2 border rounded text-sm" value={filterSt} onChange={e => setFilterSt(e.target.value)} disabled={!filterDiv}><option value="">ทั้งหมด</option>{stations.map(s => <option key={s} value={s}>ส.ทล.{s}</option>)}</select></div>
-          <div><label className="text-xs text-slate-500 block mb-1">ประเภทเหตุ</label><select className="w-full p-2 border rounded text-sm" value={filterType} onChange={e => setFilterType(e.target.value)}><option value="">ทั้งหมด</option><option value="อุบัติเหตุใหญ่">อุบัติเหตุใหญ่</option><option value="จราจรติดขัด">จราจรติดขัด</option><option value="เปิดช่องทางพิเศษ">เปิดช่องทางพิเศษ</option></select></div>
-          <div><label className="text-xs text-slate-500 block mb-1">ถนน</label><select className="w-full p-2 border rounded text-sm" value={filterRoad} onChange={e => setFilterRoad(e.target.value)}><option value="">ทั้งหมด</option><option value="ทล.1">ทล.1</option><option value="ทล.2">ทล.2</option><option value="ทล.4">ทล.4</option><option value="ทล.9">ทล.9</option><option value="ทล.32">ทล.32</option><option value="ทล.35">ทล.35</option></select></div>
-          <div><label className="text-xs text-slate-500 block mb-1">ทิศทาง</label><select className="w-full p-2 border rounded text-sm" value={filterDir} onChange={e => setFilterDir(e.target.value)}><option value="">ทั้งหมด</option><option value="ขาเข้า">ขาเข้า</option><option value="ขาออก">ขาออก</option>{dirOptions.filter(d=>d!=='ขาเข้า'&&d!=='ขาออก').map(d=><option key={d} value={d}>{d}</option>)}</select></div>
-          <div><label className="text-xs text-slate-500 block mb-1">สภาพจราจร</label><select className="w-full p-2 border rounded text-sm" value={filterTraffic} onChange={e => setFilterTraffic(e.target.value)}><option value="">ทั้งหมด</option><option value="คล่องตัว">คล่องตัว</option><option value="ชะลอตัว">ชะลอตัว</option><option value="หนาแน่น">หนาแน่น</option><option value="หยุดนิ่ง">หยุดนิ่ง</option></select></div>
-        </div>
-      </div>
-
-      {/* KPI Cards (ใช้ visualData - ไม่นับเหตุปกติ) */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
-        <KPI_Card title="เหตุการณ์ทั้งหมด" value={visualData.length} subtext="รายการ (ไม่รวมเหตุปกติ)" icon={ListChecks} colorClass="border-blue-500" bgClass="bg-blue-50" />
-        <KPI_Card title="อุบัติเหตุใหญ่" value={visualData.filter(d => d.type === 'อุบัติเหตุใหญ่').length} subtext="จุดที่ต้องเฝ้าระวัง" icon={AlertTriangle} colorClass="border-red-500" bgClass="bg-red-50" />
-        <KPI_Card title="จราจรวิกฤต/หยุดนิ่ง" value={visualData.filter(d => d.traffic === 'หยุดนิ่ง' || d.traffic === 'หนาแน่น').length} subtext="จุดวิกฤต" icon={TrafficCone} colorClass="border-orange-500" bgClass="bg-orange-50" />
-        <KPI_Card title="เปิดช่องทางพิเศษ" value={visualData.filter(d => d.type === 'เปิดช่องทางพิเศษ').length} subtext="จุดปฏิบัติงาน" icon={Activity} colorClass="border-green-500" bgClass="bg-green-50" />
-      </div>
-
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
-        {/* Map Section - ใช้ visualData (ไม่แสดงจุดปกติ) */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-[450px] relative z-0">
-          
-          {/* ✅ เปิดใช้งานแผนที่จริงแล้ว */}
-          <LeafletMapComponent data={visualData} />
-
-        </div>
-
-        {/* Charts Section - ใช้ visualData */}
-        <div className="flex flex-col gap-6">
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col">
-            <h3 className="font-bold text-slate-700 mb-4 text-sm">สัดส่วนประเภทเหตุการณ์</h3>
-            <div className="flex-1 relative min-h-[160px]"><Doughnut data={typeChartData} options={{ maintainAspectRatio: false, plugins: { legend: { position: 'right', labels: { usePointStyle: true, boxWidth: 8 } } } }} /></div>
-          </div>
-          <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col">
-             <h3 className="font-bold text-slate-700 mb-4 text-sm">เส้นทางที่เกิดเหตุสูงสุด 5 อันดับ</h3>
-             <div className="flex-1 relative min-h-[160px]"><Bar data={roadChartData} options={{ maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } } } }} /></div>
-          </div>
-        </div>
-      </div>
-
-      {/* Data Table - ใช้ tableData (แสดงทุกอย่างรวมถึงปกติ) */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-          <h3 className="font-bold text-slate-800 text-sm md:text-base">รายการข้อมูลอุบัติเหตุและจราจร (Data List)</h3>
-          <span className="text-xs text-slate-400">แสดงผล: {tableData.length} รายการ</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left text-slate-600">
-            <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-200">
-              <tr><th className="px-6 py-3 font-semibold">เวลา</th><th className="px-6 py-3 font-semibold">หน่วยงาน</th><th className="px-6 py-3 font-semibold">เหตุการณ์</th><th className="px-6 py-3 font-semibold">สถานที่ / กม.</th><th className="px-6 py-3 font-semibold">สภาพจราจร/ท้ายแถว</th></tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {tableData.length > 0 ? tableData.map((item, idx) => (
-                <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-slate-900">{item.time} น.</td>
-                  <td className="px-6 py-4"><span className="inline-flex items-center bg-slate-100 text-slate-700 text-xs font-medium px-2.5 py-1 rounded border border-slate-200">ส.ทล.{item.st} กก.{item.div}</span></td>
-                  <td className="px-6 py-4"><span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-semibold ${item.type.includes('ปกติ') ? 'bg-slate-100 text-slate-600 border border-slate-200' : item.type === 'อุบัติเหตุใหญ่' ? 'bg-red-50 text-red-700 border border-red-100' : item.type === 'เปิดช่องทางพิเศษ' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-amber-50 text-amber-700 border border-amber-100'}`}>{item.type}</span></td>
-                  <td className="px-6 py-4 text-slate-600"><div className="font-medium">{item.road} กม.{item.km}</div><div className="text-xs text-slate-400 mt-0.5">{item.dir}</div></td>
-                  <td className="px-6 py-4"><div className={`font-medium ${item.traffic === 'หยุดนิ่ง' ? 'text-red-600' : 'text-slate-600'}`}>{item.traffic}</div>{item.tailback && item.tailback !== '-' && (<div className="text-xs text-red-500 mt-0.5 font-medium">ท้ายแถว: {item.tailback}</div>)}</td>
-                </tr>
-              )) : (<tr><td colSpan="5" className="px-6 py-12 text-center text-slate-400"><div className="flex flex-col items-center justify-center"><FileText size={48} className="mb-2 opacity-20" /><p>ไม่พบข้อมูลตามเงื่อนไขที่เลือก</p></div></td></tr>)}
-            </tbody>
-          </table>
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
+      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+      <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
+      {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
+      <StatCards visualData={visualData} stats={stats} />
+      <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
+      <LogTablesSection logData={logData} accidentLogData={accidentLogData} />
+      <TrendChartSection trendChartConfig={trendChartConfig} trendStart={trendStart} setTrendStart={setTrendStart} trendEnd={trendEnd} setTrendEnd={setTrendEnd} />
     </div>
   );
 }
