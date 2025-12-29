@@ -28,11 +28,39 @@ export const analyzeTrafficText = (text) => {
   return { emoji: "📝", status: "รายงานตามข้อความ" };
 };
 
-export const getTrafficFromCoords = async (start, end) => {
+// Helper: Try Google Maps API first
+async function tryGoogleTraffic(start, end) {
+  try {
+    const res = await fetch(`/api/google-traffic?start=${start}&end=${end}`);
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+
+      // Quota exceeded - expected fallback scenario
+      if (res.status === 429 || errorData.error === 'OVER_QUERY_LIMIT') {
+        console.log('🔄 Google quota exceeded, using Longdo fallback');
+        return null;
+      }
+
+      // Other errors - log and fallback
+      console.warn('⚠️ Google API error:', errorData.error || res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    console.log(`✅ Using Google Maps data: ${data.status}`);
+    return data;
+  } catch (error) {
+    console.warn('⚠️ Google API request failed:', error.message);
+    return null;
+  }
+}
+
+// Helper: Longdo traffic analysis (existing logic)
+async function getLongdoTraffic(start, end) {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
 
-  // Use Vercel API route (works in both dev and production)
   const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
@@ -44,15 +72,12 @@ export const getTrafficFromCoords = async (start, end) => {
       const route = json.data[0];
       const distanceKm = route.distance / 1000;
       const timeSec = route.interval;
-      const penalty = route.penalty || 0; // Traffic delay penalty (signals, congestion)
+      const penalty = route.penalty || 0;
       const timeHour = timeSec / 3600;
 
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
-      // Calculate actual speed
       const speed = distanceKm / timeHour;
-
-      // Calculate delay ratio (penalty as % of total time)
       const delayRatio = penalty / timeSec;
 
       // Time-based sensitivity (Rush Hour Detection)
@@ -60,20 +85,12 @@ export const getTrafficFromCoords = async (start, end) => {
       const currentHour = now.getHours();
       const isRushHour = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
 
-      // Adjusted thresholds based on time
-      // Rush hour: more sensitive (lower thresholds)
-      // Normal: standard thresholds
       const congestedDelayThreshold = isRushHour ? 0.30 : 0.35;
       const denseDelayThreshold = isRushHour ? 0.18 : 0.20;
       const congestedSpeedThreshold = isRushHour ? 12 : 15;
       const denseSpeedThreshold = isRushHour ? 35 : 40;
 
-      let result = { code: 0, status: "" };
-
-      // Enhanced Logic with Time-based Adjustment:
-      // 1. Adjusted thresholds (0.35/0.20 base, 0.30/0.18 rush hour)
-      // 2. Speed thresholds (15/40 base, 12/35 rush hour)
-      // 3. Factor in penalty/delay ratio
+      let result = { code: 0, status: "", source: "longdo" };
 
       if (delayRatio > congestedDelayThreshold || speed < congestedSpeedThreshold) {
         result.status = "ติดขัด";
@@ -88,10 +105,24 @@ export const getTrafficFromCoords = async (start, end) => {
         result.code = 1;
       }
 
+      console.log(`🗺️ Using Longdo data: ${result.status} (speed: ${speed.toFixed(1)} km/h, delay: ${(delayRatio * 100).toFixed(1)}%)`);
       return result;
     }
   } catch (err) {
-    console.warn("Traffic API Warning:", err.message);
+    console.warn("Longdo API Warning:", err.message);
   }
-  return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0 };
+
+  return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0, source: "error" };
+}
+
+// Main function: Hybrid approach (Google → Longdo fallback)
+export const getTrafficFromCoords = async (start, end) => {
+  // 1. Try Google Maps first (most accurate)
+  const googleResult = await tryGoogleTraffic(start, end);
+  if (googleResult) {
+    return googleResult;
+  }
+
+  // 2. Fallback to Longdo (free, always available)
+  return await getLongdoTraffic(start, end);
 };
