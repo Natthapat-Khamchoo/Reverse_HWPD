@@ -3,8 +3,9 @@ import { Siren, AlertTriangle, MapPin, ArrowRightCircle, ChevronDown, ChevronUp 
 import { CATEGORY_COLORS } from '../../constants/config';
 
 export default function LogTablesSection({ logData, accidentLogData }) {
-  // State for toggling closed lanes
+  // State for toggling sections
   const [showClosedLanes, setShowClosedLanes] = useState(false);
+  const [showLocationSummary, setShowLocationSummary] = useState(false);
 
   // Enhanced processing for special lanes
   const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
@@ -67,18 +68,24 @@ export default function LogTablesSection({ logData, accidentLogData }) {
       usageStats[lane.locationKey] = {
         openCount: 0,
         durations: [],
-        location: `ทล.${lane.road} กม.${lane.km} ${lane.dir}`
+        location: `ทล.${lane.road} กม.${lane.km} ${lane.dir}`,
+        road: lane.road,
+        km: lane.km,
+        dir: lane.dir,
+        units: new Set() // Track unique units
       };
     }
     usageStats[lane.locationKey].openCount++;
+    usageStats[lane.locationKey].units.add(`กก.${lane.div} ส.ทล.${lane.st}`);
     if (lane.duration) {
       usageStats[lane.locationKey].durations.push(lane.duration);
     }
   });
 
-  // Calculate averages
+  // Calculate averages and convert Set to Array
   Object.keys(usageStats).forEach(key => {
     const stat = usageStats[key];
+    stat.units = Array.from(stat.units); // Convert Set to Array
     if (stat.durations.length > 0) {
       stat.avgDuration = stat.durations.reduce((a, b) => a + b, 0) / stat.durations.length;
       stat.maxDuration = Math.max(...stat.durations);
@@ -235,8 +242,8 @@ export default function LogTablesSection({ logData, accidentLogData }) {
                               </span>
                               {lane.durationText && (
                                 <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${lane.isOpenTooLong
-                                    ? 'bg-red-900/40 text-red-300 border border-red-700'
-                                    : 'bg-blue-900/40 text-blue-300 border border-blue-700'
+                                  ? 'bg-red-900/40 text-red-300 border border-red-700'
+                                  : 'bg-blue-900/40 text-blue-300 border border-blue-700'
                                   }`}>
                                   {lane.isOpenTooLong && '⚠️ '} เปิด {lane.durationText}
                                 </span>
@@ -248,6 +255,76 @@ export default function LogTablesSection({ logData, accidentLogData }) {
                     })}
                   </tbody>
                 </table>
+              )}
+            </div>
+          )}
+
+          {/* Location Summary Section */}
+          {Object.keys(usageStats).length > 0 && (
+            <div className="border-t-2 border-slate-700">
+              <button
+                onClick={() => setShowLocationSummary(!showLocationSummary)}
+                className="sticky top-0 z-10 w-full px-3 py-2 bg-indigo-900/20 hover:bg-indigo-900/30 border-b border-indigo-800/50 transition-colors flex items-center justify-between group"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-indigo-500"></div>
+                  <span className="text-xs font-bold text-indigo-300 group-hover:text-indigo-200">
+                    📊 สรุปตามจุดที่เคยเปิด
+                  </span>
+                  <span className="text-[10px] text-indigo-400 bg-indigo-900/50 px-1.5 py-0.5 rounded border border-indigo-700">
+                    {Object.keys(usageStats).length} จุด
+                  </span>
+                </div>
+                <div className="flex items-center gap-1 text-[10px] text-indigo-400">
+                  <span className="group-hover:text-indigo-300">{showLocationSummary ? 'ซ่อน' : 'แสดง'}</span>
+                  {showLocationSummary ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                </div>
+              </button>
+
+              {showLocationSummary && (
+                <div className="bg-indigo-950/10">
+                  <table className="w-full text-xs text-left text-slate-300">
+                    <thead className="uppercase bg-indigo-950/30 text-indigo-300 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-3 py-2 font-semibold text-[10px]">สถานที่</th>
+                        <th className="px-3 py-2 font-semibold text-[10px] text-center">จำนวนครั้ง</th>
+                        <th className="px-3 py-2 font-semibold text-[10px]">หน่วยที่เปิด</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-indigo-900/20">
+                      {Object.entries(usageStats)
+                        .sort((a, b) => b[1].openCount - a[1].openCount)
+                        .map(([key, stat], idx) => (
+                          <tr key={idx} className="hover:bg-indigo-900/10 transition-colors">
+                            <td className="px-3 py-3 align-top">
+                              <div className="flex items-start gap-1">
+                                <MapPin size={12} className="mt-0.5 text-indigo-400 flex-shrink-0" />
+                                <div>
+                                  <div className="text-slate-200 font-bold">ทล.{stat.road} กม.{stat.km}</div>
+                                  <div className="text-[10px] text-slate-400">{stat.dir}</div>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 align-top text-center">
+                              <div className="inline-flex items-center gap-1 bg-indigo-900/40 border border-indigo-700 px-2 py-1 rounded">
+                                <span className="text-lg font-bold text-indigo-200">{stat.openCount}</span>
+                                <span className="text-[10px] text-indigo-400">ครั้ง</span>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3 align-top">
+                              <div className="flex flex-wrap gap-1">
+                                {stat.units.map((unit, unitIdx) => (
+                                  <span key={unitIdx} className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-slate-700 text-slate-300 border border-slate-600">
+                                    {unit}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
               )}
             </div>
           )}
@@ -278,6 +355,6 @@ export default function LogTablesSection({ logData, accidentLogData }) {
           </table>
         </div>
       </div>
-    </div>
+    </div >
   );
 }
