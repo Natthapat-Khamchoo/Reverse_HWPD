@@ -35,6 +35,22 @@ function getRoadType(roadId) {
   return 'urban';
 }
 
+// Holiday Period Detection
+function isHolidayPeriod(now) {
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+
+  // New Year Holiday (Dec 29 - Jan 3)
+  if ((month === 12 && date >= 29) || (month === 1 && date <= 3)) {
+    return true;
+  }
+
+  // Songkran (Apr 11-17) - Optional
+  // if (month === 4 && date >= 11 && date <= 17) return true;
+
+  return false;
+}
+
 // Get Road-Specific Thresholds (COMPREHENSIVE)
 function getThresholds(roadId, isRushHour, isWeekend) {
   const roadType = getRoadType(roadId);
@@ -59,9 +75,21 @@ function getThresholds(roadId, isRushHour, isWeekend) {
   const now = new Date();
   const currentHour = now.getHours();
   const isLateNightEarlyMorning = currentHour >= 20 || currentHour < 6;
+  const isHoliday = isHolidayPeriod(now);
 
+  // PRIORITY 0: Holiday Period (STRICT!)
+  if (isHoliday && !isLateNightEarlyMorning) {
+    // ช่วงเทศกาล - เข้มงวดขึ้น (คาดว่าจะติดมาก)
+    thresholds = {
+      ...thresholds,
+      denseSpeed: thresholds.denseSpeed * 0.80,  // -20%
+      congestedSpeed: thresholds.congestedSpeed * 0.75,  // -25%
+      denseDelay: thresholds.denseDelay * 0.85,  // -15%
+      congestedDelay: thresholds.congestedDelay * 0.85  // -15%
+    };
+  }
   // PRIORITY 1: Late night/Early morning (20:00-06:00)
-  if (isLateNightEarlyMorning) {
+  else if (isLateNightEarlyMorning) {
     thresholds = {
       ...thresholds,
       denseSpeed: thresholds.denseSpeed * 0.70,

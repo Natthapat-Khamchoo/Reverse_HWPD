@@ -26,7 +26,16 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = import.meta.env.VITE_LONGDO_API_KEY || "43c345d5dae4db42926bd41ae0b5b0fa";
-const AUTO_REFRESH_INTERVAL = 60000;
+const AUTO_REFRESH_INTERVAL = 60000; // 1 minute (safe for API limits)
+
+// Holiday Period Detection
+const isHolidayPeriod = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  return (month === 12 && date >= 29) || (month === 1 && date <= 3);
+};
+
 
 export default function App() {
   const [rawData, setRawData] = useState([]);
@@ -279,6 +288,20 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+
+      {/* Holiday Alert Banner */}
+      {isHolidayPeriod() && (
+        <div className="mb-4 p-4 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg border-2 border-orange-400 shadow-xl animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="text-3xl">🎊</div>
+            <div>
+              <div className="font-bold text-lg">⚠️ ช่วงเทศกาลปีใหม่ (29 ธ.ค. - 3 ม.ค.)</div>
+              <div className="text-sm mt-1 opacity-90">การจราจรอาจหนาแน่นกว่าปกติมาก โปรดติดตามสถานการณ์อย่างใกล้ชิดและสร้างรายงานบ่อยๆ | ระบบปรับเกณฑ์การทำนายให้เข้มงวดขึ้นอัตโนมัติ</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />
