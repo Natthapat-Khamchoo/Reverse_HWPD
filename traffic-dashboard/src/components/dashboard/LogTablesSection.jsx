@@ -5,7 +5,7 @@ import { CATEGORY_COLORS } from '../../constants/config';
 export default function LogTablesSection({ logData, accidentLogData }) {
   // State for toggling sections
   const [showClosedLanes, setShowClosedLanes] = useState(false);
-  const [showLocationSummary, setShowLocationSummary] = useState(false);
+  const [showLocationSummary, setShowLocationSummary] = useState(true); // Show by default
 
   // Enhanced processing for special lanes
   const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
