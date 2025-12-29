@@ -1,3 +1,48 @@
+// Simple in-memory rate limiter
+const DAILY_LIMIT = 1200;
+const HOURLY_LIMIT = 100;
+
+let dailyCount = 0;
+let hourlyCount = 0;
+let lastDailyReset = new Date().getDate();
+let lastHourlyReset = new Date().getHours();
+
+function checkRateLimit() {
+    const now = new Date();
+    const currentDate = now.getDate();
+    const currentHour = now.getHours();
+
+    // Reset daily counter
+    if (currentDate !== lastDailyReset) {
+        dailyCount = 0;
+        lastDailyReset = currentDate;
+    }
+
+    // Reset hourly counter
+    if (currentHour !== lastHourlyReset) {
+        hourlyCount = 0;
+        lastHourlyReset = currentHour;
+    }
+
+    // Check limits
+    if (dailyCount >= DAILY_LIMIT) {
+        console.log(`⚠️ Daily limit reached (${DAILY_LIMIT}/day)`);
+        return false;
+    }
+
+    if (hourlyCount >= HOURLY_LIMIT) {
+        console.log(`⚠️ Hourly limit reached (${HOURLY_LIMIT}/hour)`);
+        return false;
+    }
+
+    // Increment counters
+    dailyCount++;
+    hourlyCount++;
+
+    console.log(`📊 Google API usage: ${dailyCount}/${DAILY_LIMIT} daily, ${hourlyCount}/${HOURLY_LIMIT} hourly`);
+    return true;
+}
+
 export default async function handler(req, res) {
     const { start, end } = req.query;
 
@@ -6,6 +51,16 @@ export default async function handler(req, res) {
         return res.status(400).json({
             error: 'BAD_REQUEST',
             message: 'Missing start or end coordinates'
+        });
+    }
+
+    // Check rate limit (ตัวเราเองในโค้ด)
+    if (!checkRateLimit()) {
+        return res.status(429).json({
+            error: 'RATE_LIMIT_EXCEEDED',
+            message: 'Daily or hourly limit exceeded, using Longdo fallback',
+            dailyUsage: dailyCount,
+            dailyLimit: DAILY_LIMIT
         });
     }
 
@@ -30,7 +85,7 @@ export default async function handler(req, res) {
 
         // Check for API errors
         if (data.status === 'OVER_QUERY_LIMIT') {
-            console.log('⚠️ Google API quota exceeded');
+            console.log('⚠️ Google API quota exceeded (from Google)');
             return res.status(429).json({
                 error: 'OVER_QUERY_LIMIT',
                 message: 'Google quota exceeded, please use Longdo fallback'
@@ -84,7 +139,11 @@ export default async function handler(req, res) {
             delayRatio: parseFloat(delayRatio.toFixed(3)),
             normalDuration,
             trafficDuration,
-            distance: element.distance.value
+            distance: element.distance.value,
+            usage: {
+                daily: dailyCount,
+                dailyLimit: DAILY_LIMIT
+            }
         });
 
     } catch (error) {

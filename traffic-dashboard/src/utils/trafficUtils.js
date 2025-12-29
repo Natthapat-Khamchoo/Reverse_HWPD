@@ -28,36 +28,83 @@ export const analyzeTrafficText = (text) => {
   return { emoji: "📝", status: "รายงานตามข้อความ" };
 };
 
-// Helper: Try Google Maps API first
-async function tryGoogleTraffic(start, end) {
-  try {
-    const res = await fetch(`/api/google-traffic?start=${start}&end=${end}`);
-
-    if (!res.ok) {
-      const errorData = await res.json().catch(() => ({}));
-
-      // Quota exceeded - expected fallback scenario
-      if (res.status === 429 || errorData.error === 'OVER_QUERY_LIMIT') {
-        console.log('🔄 Google quota exceeded, using Longdo fallback');
-        return null;
-      }
-
-      // Other errors - log and fallback
-      console.warn('⚠️ Google API error:', errorData.error || res.status);
-      return null;
-    }
-
-    const data = await res.json();
-    console.log(`✅ Using Google Maps data: ${data.status}`);
-    return data;
-  } catch (error) {
-    console.warn('⚠️ Google API request failed:', error.message);
-    return null;
+// Road Type Classification Helper
+function getRoadType(roadId) {
+  // Motorways (ทางพิเศษ/มอเตอร์เวย์)
+  if (['7', '9'].includes(roadId)) {
+    return 'motorway';
   }
+
+  // Major Highways (ทางหลวงสายหลัก)
+  if (['1', '2', '3', '4', '11', '21', '32'].includes(roadId)) {
+    return 'highway';
+  }
+
+  // Urban/Secondary Roads (ถนนในเมือง/สายรอง)
+  return 'urban';
 }
 
-// Helper: Longdo traffic analysis (existing logic)
-async function getLongdoTraffic(start, end) {
+// Get Road-Specific Thresholds
+function getThresholds(roadId, isRushHour, isWeekend) {
+  const roadType = getRoadType(roadId);
+
+  // Base thresholds by road type
+  let baseThresholds = {
+    motorway: {
+      // ทางพิเศษ - ความเร็วสูง
+      fluidSpeed: 80,
+      denseSpeed: 60,
+      congestedSpeed: 40,
+      denseDelay: 0.15,
+      congestedDelay: 0.30
+    },
+    highway: {
+      // ทางหลวง - ความเร็วปานกลาง
+      fluidSpeed: 60,
+      denseSpeed: 40,
+      congestedSpeed: 20,
+      denseDelay: 0.18,
+      congestedDelay: 0.32
+    },
+    urban: {
+      // ถนนในเมือง - ความเร็วต่ำ
+      fluidSpeed: 45,
+      denseSpeed: 30,
+      congestedSpeed: 15,
+      denseDelay: 0.20,
+      congestedDelay: 0.35
+    }
+  };
+
+  let thresholds = baseThresholds[roadType];
+
+  // Adjust for rush hour (เข้มงวดขึ้น)
+  if (isRushHour && !isWeekend) {
+    thresholds = {
+      ...thresholds,
+      denseSpeed: thresholds.denseSpeed * 0.90,  // -10%
+      congestedSpeed: thresholds.congestedSpeed * 0.85,  // -15%
+      denseDelay: thresholds.denseDelay * 0.90,  // -10%
+      congestedDelay: thresholds.congestedDelay * 0.90  // -10%
+    };
+  }
+
+  // Adjust for weekend (ผ่อนปรน)
+  if (isWeekend) {
+    thresholds = {
+      ...thresholds,
+      denseSpeed: thresholds.denseSpeed * 1.15,  // +15%
+      congestedSpeed: thresholds.congestedSpeed * 1.20,  // +20%
+      denseDelay: thresholds.denseDelay * 1.15,  // +15%
+      congestedDelay: thresholds.congestedDelay * 1.15  // +15%
+    };
+  }
+
+  return thresholds;
+}
+
+// Main Traffic Analysis Function
+export const getTrafficFromCoords = async (start, end, roadId = null) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
 
@@ -80,23 +127,25 @@ async function getLongdoTraffic(start, end) {
       const speed = distanceKm / timeHour;
       const delayRatio = penalty / timeSec;
 
-      // Time-based sensitivity (Rush Hour Detection)
+      // Time-based context
       const now = new Date();
       const currentHour = now.getHours();
-      const isRushHour = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
+      const currentDay = now.getDay(); // 0=Sunday, 6=Saturday
 
-      const congestedDelayThreshold = isRushHour ? 0.30 : 0.35;
-      const denseDelayThreshold = isRushHour ? 0.18 : 0.20;
-      const congestedSpeedThreshold = isRushHour ? 12 : 15;
-      const denseSpeedThreshold = isRushHour ? 35 : 40;
+      const isRushHour = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
+      const isWeekend = currentDay === 0 || currentDay === 6;
+
+      // Get adaptive thresholds
+      const thresholds = getThresholds(roadId, isRushHour, isWeekend);
 
       let result = { code: 0, status: "", source: "longdo" };
 
-      if (delayRatio > congestedDelayThreshold || speed < congestedSpeedThreshold) {
+      // Apply road-type specific logic
+      if (delayRatio > thresholds.congestedDelay || speed < thresholds.congestedSpeed) {
         result.status = "ติดขัด";
         result.code = 3;
       }
-      else if (delayRatio > denseDelayThreshold || speed < denseSpeedThreshold) {
+      else if (delayRatio > thresholds.denseDelay || speed < thresholds.denseSpeed) {
         result.status = "หนาแน่น";
         result.code = 2;
       }
@@ -105,24 +154,16 @@ async function getLongdoTraffic(start, end) {
         result.code = 1;
       }
 
-      console.log(`🗺️ Using Longdo data: ${result.status} (speed: ${speed.toFixed(1)} km/h, delay: ${(delayRatio * 100).toFixed(1)}%)`);
+      const roadType = roadId ? getRoadType(roadId) : 'unknown';
+      const context = isWeekend ? '(Weekend)' : isRushHour ? '(Rush Hour)' : '(Normal)';
+
+      console.log(`🗺️ ${result.status} | Type: ${roadType} | Speed: ${speed.toFixed(1)} km/h | Delay: ${(delayRatio * 100).toFixed(1)}% ${context}`);
+
       return result;
     }
   } catch (err) {
-    console.warn("Longdo API Warning:", err.message);
+    console.warn("Traffic API Warning:", err.message);
   }
 
   return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0, source: "error" };
-}
-
-// Main function: Hybrid approach (Google → Longdo fallback)
-export const getTrafficFromCoords = async (start, end) => {
-  // 1. Try Google Maps first (most accurate)
-  const googleResult = await tryGoogleTraffic(start, end);
-  if (googleResult) {
-    return googleResult;
-  }
-
-  // 2. Fallback to Longdo (free, always available)
-  return await getLongdoTraffic(start, end);
 };

@@ -58,7 +58,7 @@ export const generateTrafficReport = async (rawData, direction) => {
                     let start = seg.start;
                     let end = seg.end;
                     if (direction === 'inbound') { start = seg.end; end = seg.start; }
-                    const result = await getTrafficFromCoords(start, end);
+                    const result = await getTrafficFromCoords(start, end, road.id); // Pass road ID
                     return { label: seg.label, ...result };
                 });
 
