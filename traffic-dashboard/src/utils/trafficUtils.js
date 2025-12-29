@@ -44,29 +44,37 @@ export const getTrafficFromCoords = async (start, end) => {
       const route = json.data[0];
       const distanceKm = route.distance / 1000;
       const timeSec = route.interval;
+      const penalty = route.penalty || 0; // Traffic delay penalty (signals, congestion)
       const timeHour = timeSec / 3600;
 
       if (timeHour <= 0) return { status: "ตรวจสอบไม่ได้", code: 0 };
 
+      // Calculate actual speed
       const speed = distanceKm / timeHour;
+
+      // Calculate delay ratio (penalty as % of total time)
+      const delayRatio = penalty / timeSec;
+
       let result = { code: 0, status: "" };
 
-      // User Logic:
-      // Green (Fluid) >= 45 km/h
-      // Yellow (Dense) 15 - 45 km/h
-      // Red (Congested) < 15 km/h
+      // Enhanced Logic:
+      // 1. Base on speed (adjusted for urban roads: 40 km/h threshold)
+      // 2. Factor in penalty/delay ratio (high penalty = likely traffic)
 
-      if (speed >= 45) {
-        result.status = "คล่องตัว";
-        result.code = 1;
+      // High delay (penalty > 30% of time) OR very slow = Congested
+      if (delayRatio > 0.3 || speed < 15) {
+        result.status = "ติดขัด";
+        result.code = 3;
       }
-      else if (speed >= 15) {
+      // Moderate delay (15-30%) OR moderate speed = Dense
+      else if (delayRatio > 0.15 || speed < 40) {
         result.status = "หนาแน่น";
         result.code = 2;
       }
+      // Low delay and good speed = Fluid
       else {
-        result.status = "ติดขัด";
-        result.code = 3;
+        result.status = "คล่องตัว";
+        result.code = 1;
       }
 
       return result;
