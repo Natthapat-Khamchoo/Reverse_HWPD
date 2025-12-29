@@ -30,73 +30,75 @@ export const analyzeTrafficText = (text) => {
 
 // Road Type Classification Helper
 function getRoadType(roadId) {
-  // Motorways (ทางพิเศษ/มอเตอร์เวย์)
-  if (['7', '9'].includes(roadId)) {
-    return 'motorway';
-  }
-
-  // Major Highways (ทางหลวงสายหลัก)
-  if (['1', '2', '3', '4', '11', '21', '32'].includes(roadId)) {
-    return 'highway';
-  }
-
-  // Urban/Secondary Roads (ถนนในเมือง/สายรอง)
+  if (['7', '9'].includes(roadId)) return 'motorway';
+  if (['1', '2', '3', '4', '11', '21', '32'].includes(roadId)) return 'highway';
   return 'urban';
 }
 
-// Get Road-Specific Thresholds
+// Get Road-Specific Thresholds (COMPREHENSIVE)
 function getThresholds(roadId, isRushHour, isWeekend) {
   const roadType = getRoadType(roadId);
 
-  // Base thresholds by road type
+  // Base thresholds (VERY RELAXED)
   let baseThresholds = {
     motorway: {
-      // ทางพิเศษ - ยอมรับความเร็วต่ำกว่าเดิม
-      fluidSpeed: 60,
-      denseSpeed: 40,
-      congestedSpeed: 25,
-      denseDelay: 0.30,
-      congestedDelay: 0.50
+      fluidSpeed: 50, denseSpeed: 30, congestedSpeed: 18,
+      denseDelay: 0.40, congestedDelay: 0.65
     },
     highway: {
-      // ทางหลวง - ยอมรับความเร็วต่ำกว่าเดิมมาก
-      fluidSpeed: 40,
-      denseSpeed: 25,
-      congestedSpeed: 12,
-      denseDelay: 0.35,
-      congestedDelay: 0.55
+      fluidSpeed: 35, denseSpeed: 20, congestedSpeed: 10,
+      denseDelay: 0.45, congestedDelay: 0.70
     },
     urban: {
-      // ถนนในเมือง - ยอมรับความเร็วต่ำมาก
-      fluidSpeed: 30,
-      denseSpeed: 18,
-      congestedSpeed: 8,
-      denseDelay: 0.40,
-      congestedDelay: 0.60
+      fluidSpeed: 25, denseSpeed: 15, congestedSpeed: 6,
+      denseDelay: 0.50, congestedDelay: 0.75
     }
   };
 
   let thresholds = baseThresholds[roadType];
+  const now = new Date();
+  const currentHour = now.getHours();
+  const isLateNightEarlyMorning = currentHour >= 20 || currentHour < 6;
 
-  // Adjust for rush hour (เข้มงวดขึ้น)
-  if (isRushHour && !isWeekend) {
+  // PRIORITY 1: Late night/Early morning (20:00-06:00)
+  if (isLateNightEarlyMorning) {
     thresholds = {
       ...thresholds,
-      denseSpeed: thresholds.denseSpeed * 0.90,  // -10%
-      congestedSpeed: thresholds.congestedSpeed * 0.85,  // -15%
-      denseDelay: thresholds.denseDelay * 0.90,  // -10%
-      congestedDelay: thresholds.congestedDelay * 0.90  // -10%
+      denseSpeed: thresholds.denseSpeed * 0.70,
+      congestedSpeed: thresholds.congestedSpeed * 0.60,
+      denseDelay: thresholds.denseDelay * 1.50,
+      congestedDelay: thresholds.congestedDelay * 1.50
+    };
+  }
+  // Rush hour
+  else if (isRushHour && !isWeekend) {
+    thresholds = {
+      ...thresholds,
+      denseSpeed: thresholds.denseSpeed * 0.95,
+      congestedSpeed: thresholds.congestedSpeed * 0.90,
+      denseDelay: thresholds.denseDelay * 0.95,
+      congestedDelay: thresholds.congestedDelay * 0.95
+    };
+  }
+  // Weekend
+  else if (isWeekend) {
+    thresholds = {
+      ...thresholds,
+      denseSpeed: thresholds.denseSpeed * 1.25,
+      congestedSpeed: thresholds.congestedSpeed * 1.30,
+      denseDelay: thresholds.denseDelay * 1.25,
+      congestedDelay: thresholds.congestedDelay * 1.25
     };
   }
 
-  // Adjust for weekend (ผ่อนปรน)
-  if (isWeekend) {
+  // PRIORITY 2: Special case for problematic roads (ทล.1,2,4,7)
+  if (['1', '2', '4', '7'].includes(roadId)) {
     thresholds = {
       ...thresholds,
-      denseSpeed: thresholds.denseSpeed * 1.15,  // +15%
-      congestedSpeed: thresholds.congestedSpeed * 1.20,  // +20%
-      denseDelay: thresholds.denseDelay * 1.15,  // +15%
-      congestedDelay: thresholds.congestedDelay * 1.15  // +15%
+      denseSpeed: thresholds.denseSpeed * 0.85,
+      congestedSpeed: thresholds.congestedSpeed * 0.80,
+      denseDelay: thresholds.denseDelay * 1.20,
+      congestedDelay: thresholds.congestedDelay * 1.20
     };
   }
 
@@ -107,7 +109,6 @@ function getThresholds(roadId, isRushHour, isWeekend) {
 export const getTrafficFromCoords = async (start, end, roadId = null) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
-
   const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
@@ -127,20 +128,15 @@ export const getTrafficFromCoords = async (start, end, roadId = null) => {
       const speed = distanceKm / timeHour;
       const delayRatio = penalty / timeSec;
 
-      // Time-based context
       const now = new Date();
       const currentHour = now.getHours();
-      const currentDay = now.getDay(); // 0=Sunday, 6=Saturday
-
+      const currentDay = now.getDay();
       const isRushHour = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
       const isWeekend = currentDay === 0 || currentDay === 6;
 
-      // Get adaptive thresholds
       const thresholds = getThresholds(roadId, isRushHour, isWeekend);
-
       let result = { code: 0, status: "", source: "longdo" };
 
-      // Apply road-type specific logic
       if (delayRatio > thresholds.congestedDelay || speed < thresholds.congestedSpeed) {
         result.status = "ติดขัด";
         result.code = 3;
@@ -155,7 +151,7 @@ export const getTrafficFromCoords = async (start, end, roadId = null) => {
       }
 
       const roadType = roadId ? getRoadType(roadId) : 'unknown';
-      const context = isWeekend ? '(Weekend)' : isRushHour ? '(Rush Hour)' : '(Normal)';
+      const context = isWeekend ? '(Weekend)' : isRushHour ? '(Rush Hour)' : currentHour >= 20 || currentHour < 6 ? '(Late Night)' : '(Normal)';
 
       console.log(`🗺️ ${result.status} | Type: ${roadType} | Speed: ${speed.toFixed(1)} km/h | Delay: ${(delayRatio * 100).toFixed(1)}% ${context}`);
 
