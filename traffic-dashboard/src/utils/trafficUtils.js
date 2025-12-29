@@ -40,8 +40,8 @@ function isHolidayPeriod(now) {
   const month = now.getMonth() + 1;
   const date = now.getDate();
 
-  // New Year Holiday (Dec 29 - Jan 3)
-  if ((month === 12 && date >= 29) || (month === 1 && date <= 3)) {
+  // New Year Holiday (Dec 29 - Jan 4)
+  if ((month === 12 && date >= 29) || (month === 1 && date <= 4)) {
     return true;
   }
 
