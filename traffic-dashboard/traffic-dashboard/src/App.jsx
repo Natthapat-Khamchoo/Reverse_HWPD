@@ -5,9 +5,10 @@ import {
 
 // Config & Utils
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
+import { TRAFFIC_DATA } from './constants/traffic_nodes'; 
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
-import { generateTrafficReport } from './utils/reportGenerator';
+import { analyzeTrafficText, getTrafficFromCoords } from './utils/trafficUtils';
 
 // Components
 import SystemLoader from './components/common/SystemLoader';
@@ -21,11 +22,11 @@ import ReportModal from './components/report/ReportModal';
 
 // Registration
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
-ChartJS.defaults.color = '#94a3b8';
-ChartJS.defaults.borderColor = '#334155';
+ChartJS.defaults.color = '#94a3b8'; 
+ChartJS.defaults.borderColor = '#334155'; 
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
-const LONGDO_API_KEY = import.meta.env.VITE_LONGDO_API_KEY || "43c345d5dae4db42926bd41ae0b5b0fa";
+const LONGDO_API_KEY = "43c345d5dae4db42926bd41ae0b5b0fa"; // ควรย้ายไป .env
 const AUTO_REFRESH_INTERVAL = 60000;
 
 export default function App() {
@@ -39,14 +40,14 @@ export default function App() {
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
   const [copySuccess, setCopySuccess] = useState(false);
-  const [reportDirection, setReportDirection] = useState('outbound');
+  const [reportDirection, setReportDirection] = useState('outbound'); 
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
   const [customStart, setCustomStart] = useState(getThaiDateStr());
   const [customEnd, setCustomEnd] = useState(getThaiDateStr());
   const [filterDiv, setFilterDiv] = useState('');
-  const [filterSt, setFilterSt] = useState('');
+  const [filterSt, setFilterSt] = useState(''); 
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [selectedRoads, setSelectedRoads] = useState([]);
 
@@ -72,16 +73,16 @@ export default function App() {
     try {
       const timestamp = new Date().getTime();
       const [resTraffic, resEnforce, resSafety] = await Promise.all([
-        fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
-        fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
-        fetch(`${SHEET_SAFETY_URL}&t=${timestamp}`).then(r => r.text())
+            fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
+            fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
+            fetch(`${SHEET_SAFETY_URL}&t=${timestamp}`).then(r => r.text())
       ]);
       const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
       const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
       const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
       setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
       setLastUpdated(new Date());
-    } catch (err) { console.error(err); setError(true); }
+    } catch (err) { console.error(err); setError(true); } 
     finally { if (!isBackground) setTimeout(() => setLoading(false), 800); }
   }, []);
 
@@ -92,7 +93,7 @@ export default function App() {
   }, [fetchData]);
 
   // --- Data Processing ---
-  const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10 && r !== 'ไม่ระบุ'))).sort(), [rawData]);
+  const uniqueRoads = useMemo(() => Array.from(new Set(rawData.map(d => d.road).filter(r => r && r !== '-' && r.length < 10))).sort(), [rawData]);
   const stations = useMemo(() => (filterDiv && ORG_STRUCTURE[filterDiv]) ? Array.from({ length: ORG_STRUCTURE[filterDiv] }, (_, i) => i + 1) : [], [filterDiv]);
 
   // 1. Log Data (Filtered)
@@ -100,20 +101,20 @@ export default function App() {
     return rawData.filter(item => {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-
+      
       let passCategory = true;
       if (selectedCategories.length > 0) {
-        passCategory = selectedCategories.includes(item.category);
-        if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') {
-          passCategory = true;
-        }
+          passCategory = selectedCategories.includes(item.category);
+          if (selectedCategories.includes('ช่องทางพิเศษ') && item.category === 'ปิดช่องทางพิเศษ') {
+              passCategory = true;
+          }
       }
 
       const passRoad = selectedRoads.length === 0 || selectedRoads.includes(item.road);
       const passDiv = !filterDiv || item.div === filterDiv;
       const passSt = !filterSt || item.st === filterSt;
       return passDate && passCategory && passRoad && passDiv && passSt;
-    }).sort((a, b) => b.timestamp - a.timestamp);
+    }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate, filterDiv, filterSt, selectedCategories, selectedRoads]);
 
   // 2. Accident Data
@@ -122,49 +123,49 @@ export default function App() {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
       return passDate && item.category === 'อุบัติเหตุ';
-    }).sort((a, b) => b.timestamp - a.timestamp);
+    }).sort((a,b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate]);
 
   // 3. Visual Data
   const visualData = useMemo(() => {
     return logData.filter(item => {
-      if (item.category === 'อุบัติเหตุ') return item.div === '8';
-      return true;
+        if (item.category === 'อุบัติเหตุ') return item.div === '8'; 
+        return true; 
     });
   }, [logData]);
 
   // 4. Map Data
   const mapData = useMemo(() => {
     const dateFilteredData = rawData.filter(d => {
-      if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
-      return true;
+        if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
+        return true;
     }).sort((a, b) => a.timestamp - b.timestamp);
 
-    const activeStates = new Map();
-    const otherEvents = [];
+    const activeStates = new Map(); 
+    const otherEvents = []; 
 
     dateFilteredData.forEach(row => {
-      if (!row.lat || !row.lng) return;
+        if (!row.lat || !row.lng) return; 
+        
+        const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+        const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
+        const laneKey = `LANE-${locKey}`;
+        const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
+        const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
 
-      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-      const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
-      const laneKey = `LANE-${locKey}`;
-      const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
-      const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
+        if (isOpening) {
+            activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
+        } else if (isClosing) {
+            activeStates.delete(laneKey);
+        }
 
-      if (isOpening) {
-        activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
-      } else if (isClosing) {
-        activeStates.delete(laneKey);
-      }
+        if (row.category === 'อุบัติเหตุ' && row.div === '8') {
+             otherEvents.push({ ...row, pinType: 'event' });
+        }
 
-      if (row.category === 'อุบัติเหตุ' && row.div === '8') {
-        otherEvents.push({ ...row, pinType: 'event' });
-      }
-
-      if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
-        otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
-      }
+        if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
+             otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
+        }
     });
 
     return [...otherEvents, ...activeStates.values()];
@@ -173,12 +174,12 @@ export default function App() {
   // 📊 STATS
   const stats = useMemo(() => {
     const drunkCount = rawData.filter(item => {
-      let passDate = true;
-      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
-      const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
-      const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
-      const isDrunk = allText.includes('เมา');
-      return passDate && isEnforceContext && isDrunk;
+        let passDate = true;
+        if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+        const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
+        const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
+        const isDrunk = allText.includes('เมา');
+        return passDate && isEnforceContext && isDrunk;
     }).length;
 
     const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
@@ -188,10 +189,10 @@ export default function App() {
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = mainCats.map(cat => ({
-      label: cat,
-      data: divisions.map(div => visualData.filter(d => d.div === div && d.category === cat).length),
-      backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
-      stack: 'Stack 0',
+        label: cat,
+        data: divisions.map(div => visualData.filter(d => d.div === div && d.category === cat).length),
+        backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
+        stack: 'Stack 0',
     }));
     return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
@@ -201,31 +202,31 @@ export default function App() {
     const dataIndex = elements[0].index;
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const clickedDiv = divisions[dataIndex];
-    if (filterDiv === clickedDiv) { setFilterDiv(''); setFilterSt(''); }
+    if (filterDiv === clickedDiv) { setFilterDiv(''); setFilterSt(''); } 
     else { setFilterDiv(clickedDiv); setFilterSt(''); }
   }, [filterDiv]);
 
   const trendChartConfig = useMemo(() => {
     const trendFiltered = rawData.filter(item => {
-      const inDate = item.date >= trendStart && item.date <= trendEnd;
-      const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
-      return inDate && visualRule;
+        const inDate = item.date >= trendStart && item.date <= trendEnd;
+        const visualRule = (item.category === 'อุบัติเหตุ') ? (item.div === '8') : true;
+        return inDate && visualRule;
     });
     const labels = [];
     let curr = new Date(trendStart);
     const end = new Date(trendEnd);
     while (curr <= end) {
-      labels.push(getThaiDateStr(curr));
-      curr.setDate(curr.getDate() + 1);
+        labels.push(getThaiDateStr(curr));
+        curr.setDate(curr.getDate() + 1);
     }
     const categories = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = categories.map(cat => {
-      return {
-        label: cat,
-        data: labels.map(date => trendFiltered.filter(item => item.date === date && item.category === cat).length),
-        backgroundColor: CATEGORY_COLORS[cat] || '#94a3b8',
-        stack: 'stack1',
-      };
+        return {
+            label: cat,
+            data: labels.map(date => trendFiltered.filter(item => item.date === date && item.category === cat).length),
+            backgroundColor: CATEGORY_COLORS[cat] || '#94a3b8',
+            stack: 'stack1',
+        };
     });
     return { labels: labels.map(d => d.split('-').slice(1).join('/')), datasets: datasets };
   }, [rawData, trendStart, trendEnd]);
@@ -234,44 +235,88 @@ export default function App() {
     setIsGeneratingReport(true);
     setCopySuccess(false);
     try {
-      const report = await generateTrafficReport(rawData, reportDirection);
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+      const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+      const todayFilterStr = getThaiDateStr(now);
+      const directionText = reportDirection === 'outbound' ? '(ขาออก)' : '(ขาเข้า)';
+      
+      let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
+
+      for (const region of TRAFFIC_DATA) {
+        let regionHasRoads = false;
+        let regionReport = `${region.region}\n`;
+        
+        for (const road of region.roads) {
+          regionHasRoads = true;
+          const officerReport = rawData.find(d => 
+              d.road === road.id && 
+              d.date === todayFilterStr &&
+              (d.category === 'จราจรติดขัด' || d.category === 'สภาพจราจร' || d.category === 'ช่องทางพิเศษ' || d.detail.includes('จราจร') || d.detail.includes('รถ'))
+          );
+
+          let finalStatus = "";
+          let prefixEmoji = "";
+
+          if (officerReport) {
+              const analysis = analyzeTrafficText(officerReport.detail);
+              const laneInfo = officerReport.category.includes('ช่องทางพิเศษ') || officerReport.detail.includes('เปิดช่องทาง') ? ' (เปิดช่องทางพิเศษ)' : '';
+              prefixEmoji = analysis.emoji;
+              let cleanDetail = officerReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
+              finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo} (จนท.รายงาน)`;
+          } else {
+              const segmentPromises = road.segments.map(async (seg) => {
+                  let start = seg.start;
+                  let end = seg.end;
+                  if (reportDirection === 'inbound') { start = seg.end; end = seg.start; }
+                  const result = await getTrafficFromCoords(start, end);
+                  return { label: seg.label, ...result };
+              });
+              const results = await Promise.all(segmentPromises);
+              const problematic = results.filter(r => r.code >= 2);
+              const allGreen = results.every(r => r.code === 1);
+              const apiError = results.every(r => r.code === 0);
+
+              if (problematic.length > 0) {
+                  prefixEmoji = "🟡"; 
+                  if (problematic.some(r => r.code >= 3)) prefixEmoji = "🔴";
+                  finalStatus = problematic.map(p => `${p.label} ${p.status}`).join(', ');
+                  finalStatus = `${prefixEmoji} ${finalStatus}`;
+              } else if (allGreen) {
+                  finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+              } else if (apiError) {
+                  finalStatus = "⚫ อยู่ระหว่างตรวจสอบข้อมูล";
+              } else {
+                  finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี";
+              }
+          }
+          regionReport += `- ${road.name} : ${finalStatus}\n`;
+        }
+        if(regionHasRoads) report += regionReport;
+      }
       setGeneratedReportText(report);
       setShowReportModal(true);
-    } catch (e) {
-      console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
-    } finally {
-      setIsGeneratingReport(false);
-    }
+    } catch (e) { console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน"); } 
+    finally { setIsGeneratingReport(false); }
   };
 
   const handleCopyText = () => {
-    const textToCopy = generatedReportText;
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(textToCopy).then(() => setCopySuccess(true));
-    } else {
+    navigator.clipboard.writeText(generatedReportText).then(() => {
+      setCopySuccess(true);
+    }).catch(err => {
       // Fallback
       var textArea = document.createElement("textarea");
-      textArea.value = textToCopy;
+      textArea.value = generatedReportText;
       document.body.appendChild(textArea);
       textArea.select();
-      try { document.execCommand('copy'); setCopySuccess(true); }
-      catch (err) { console.error(err); }
+      document.execCommand('copy');
       document.body.removeChild(textArea);
-    }
+      setCopySuccess(true);
+    });
   };
 
   if (loading) return <SystemLoader />;
-  if (error) return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
-      <div className="text-xl text-red-400 mb-4">❌ ไม่สามารถโหลดข้อมูลได้</div>
-      <button
-        onClick={() => fetchData(false)}
-        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
-      >
-        ลองใหม่
-      </button>
-    </div>
-  );
+  if (error) return <div className="p-10 text-center text-white">Error Loading Data</div>;
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">

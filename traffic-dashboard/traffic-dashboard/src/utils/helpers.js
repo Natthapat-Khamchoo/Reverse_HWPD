@@ -3,36 +3,19 @@ export const getThaiDateStr = (date = new Date()) => date.toLocaleDateString('en
 
 export const formatTime24 = (rawTime) => {
   if (!rawTime) return '00:00';
-  // Remove 'น.' or 'น' and trim
   let t = rawTime.toString().replace(/น\.|น/g, '').trim().toUpperCase();
-  // Replace ALL dots with colons (e.g. 12.30 -> 12:30)
-  t = t.replace(/\./g, ':');
-
+  t = t.replace('.', ':');
   const isPM = t.includes('PM') || t.includes('P.M');
   const isAM = t.includes('AM') || t.includes('A.M');
-
-  // Remove non-digit/colon chars
-  const timeOnly = t.replace(/[^\d:]/g, '');
+  const timeOnly = t.replace(/[^\d:]/g, ''); 
   let [h, m] = timeOnly.split(':');
-
   if (!h) return '00:00';
   if (!m) m = '00';
-
   let hh = parseInt(h, 10);
-  let mm = parseInt(m.substring(0, 2), 10);
-
-  if (isNaN(hh)) hh = 0;
-  if (isNaN(mm)) mm = 0;
-
+  const mm = parseInt(m.substring(0, 2), 10);
   if (isPM && hh < 12) hh += 12;
   if (isAM && hh === 12) hh = 0;
-
-  // Handle 24:00 -> 00:00
-  if (hh === 24) hh = 0;
-  else if (hh > 23) hh = 0; // Fallback for strange times
-
-  if (mm > 59) mm = 59;
-
+  if (hh > 23) hh = 0;
   return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`;
 };
 
@@ -40,10 +23,10 @@ export const parseCSV = (text) => {
   if (!text) return [];
   const rows = []; let currentRow = []; let currentVal = ''; let insideQuote = false;
   for (let i = 0; i < text.length; i++) {
-    const char = text[i]; const nextChar = text[i + 1];
+    const char = text[i]; const nextChar = text[i+1];
     if (char === '"') {
       if (insideQuote && nextChar === '"') { currentVal += '"'; i++; } else { insideQuote = !insideQuote; }
-    } else if (char === ',' && !insideQuote) { currentRow.push(currentVal.trim()); currentVal = ''; }
+    } else if (char === ',' && !insideQuote) { currentRow.push(currentVal.trim()); currentVal = ''; } 
     else if ((char === '\n' || char === '\r') && !insideQuote) {
       if (currentVal || currentRow.length > 0) currentRow.push(currentVal.trim());
       if (currentRow.length > 0) rows.push(currentRow);
