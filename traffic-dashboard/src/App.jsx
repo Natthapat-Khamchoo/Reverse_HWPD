@@ -192,8 +192,8 @@ export default function App() {
     }).length;
 
     const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
-    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
-    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    const openLaneCount = logData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const closeLaneCount = logData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
 
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
@@ -204,7 +204,7 @@ export default function App() {
       stack: 'Stack 0',
     }));
     return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
-  }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
+  }, [visualData, rawData, filterStartDate, filterEndDate, mapData, logData]);
 
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
