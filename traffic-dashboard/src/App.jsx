@@ -38,6 +38,7 @@ export default function App() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
+  const [reportMetadata, setReportMetadata] = useState(null); // For feedback
   const [copySuccess, setCopySuccess] = useState(false);
   const [reportDirection, setReportDirection] = useState('outbound');
 
@@ -234,8 +235,10 @@ export default function App() {
     setIsGeneratingReport(true);
     setCopySuccess(false);
     try {
-      const report = await generateTrafficReport(rawData, reportDirection);
-      setGeneratedReportText(report);
+      const result = await generateTrafficReport(rawData, reportDirection);
+      // New format returns { text, metadata, direction, timestamp }
+      setGeneratedReportText(result.text);
+      setReportMetadata(result.metadata);
       setShowReportModal(true);
     } catch (e) {
       console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
@@ -275,7 +278,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
-      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
       <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />

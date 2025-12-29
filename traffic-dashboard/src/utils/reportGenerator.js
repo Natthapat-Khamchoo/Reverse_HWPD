@@ -12,6 +12,7 @@ export const generateTrafficReport = async (rawData, direction) => {
     const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 Hours
 
     let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
+    const reportMetadata = []; // Store road data for feedback
 
     for (const region of TRAFFIC_DATA) {
         let regionHasRoads = false;
@@ -44,6 +45,7 @@ export const generateTrafficReport = async (rawData, direction) => {
 
             let finalStatus = "";
             let prefixEmoji = "";
+            let predictedStatus = "";
 
             if (useOfficerReport) {
                 // Use Manual Report
@@ -52,6 +54,8 @@ export const generateTrafficReport = async (rawData, direction) => {
                 prefixEmoji = analysis.emoji;
                 let cleanDetail = latestReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
                 finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo}${timeLabel} (จนท.รายงาน)`;
+                predictedStatus = analysis.status.includes('คล่องตัว') ? 'คล่องตัว' :
+                    analysis.status.includes('ติดขัด') ? 'ติดขัด' : 'หนาแน่น';
             } else {
                 // Use API (Real-time)
                 const segmentPromises = road.segments.map(async (seg) => {
@@ -70,27 +74,53 @@ export const generateTrafficReport = async (rawData, direction) => {
                 if (problematic.length > 0) {
                     // Logic: Yellow if any code 2, Red if any code 3
                     prefixEmoji = "🟡";
-                    if (problematic.some(r => r.code >= 3)) prefixEmoji = "🔴";
+                    predictedStatus = "หนาแน่น";
+                    if (problematic.some(r => r.code >= 3)) {
+                        prefixEmoji = "🔴";
+                        predictedStatus = "ติดขัด";
+                    }
 
                     finalStatus = problematic.map(p => `${p.label} ${p.status}`).join(', ');
                     finalStatus = `${prefixEmoji} ${finalStatus}`;
                 } else if (allGreen) {
                     finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+                    predictedStatus = "คล่องตัว";
                 } else if (apiError) {
                     // If API completely fails, fallback to stale report if exists
                     if (latestReport) {
                         const analysis = analyzeTrafficText(latestReport.detail);
                         finalStatus = `${analysis.emoji} ${latestReport.detail} (ข้อมูลเดิม ${latestReport.time} น.)`;
+                        predictedStatus = analysis.status.includes('คล่องตัว') ? 'คล่องตัว' :
+                            analysis.status.includes('ติดขัด') ? 'ติดขัด' : 'หนาแน่น';
                     } else {
                         finalStatus = "⚫ อยู่ระหว่างตรวจสอบข้อมูล";
+                        predictedStatus = "ตรวจสอบไม่ได้";
                     }
                 } else {
                     finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี";
+                    predictedStatus = "คล่องตัว";
                 }
             }
+
             regionReport += `- ${road.name} : ${finalStatus}\n`;
+
+            // Store metadata for feedback
+            reportMetadata.push({
+                roadId: road.id,
+                roadName: road.name,
+                predictedStatus,
+                emoji: prefixEmoji,
+                region: region.region
+            });
         }
         if (regionHasRoads) report += regionReport;
     }
-    return report;
+
+    return {
+        text: report,
+        metadata: reportMetadata,
+        direction,
+        timestamp: now.getTime()
+    };
 };
+
