@@ -145,40 +145,39 @@ export default function App() {
 
   // 4. Map Data
   const mapData = useMemo(() => {
-    const dateFilteredData = rawData.filter(d => {
-      if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
-      return true;
-    }).sort((a, b) => a.timestamp - b.timestamp);
+    // Sort logData by timestamp to process events chronologically
+    const sortedData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
 
     const activeStates = new Map();
     const otherEvents = [];
 
-    dateFilteredData.forEach(row => {
+    sortedData.forEach(row => {
       if (!row.lat || !row.lng) return;
 
       const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-      const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
       const laneKey = `LANE-${locKey}`;
-      const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
-      const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
 
-      if (isOpening) {
+      // Handle special lanes with state tracking
+      if (row.category === 'ช่องทางพิเศษ') {
         activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
-      } else if (isClosing) {
+      } else if (row.category === 'ปิดช่องทางพิเศษ') {
         activeStates.delete(laneKey);
       }
 
+      // Handle accidents (only kkk.8)
       if (row.category === 'อุบัติเหตุ' && row.div === '8') {
         otherEvents.push({ ...row, pinType: 'event' });
       }
 
+      // Handle drunk driving arrests
+      const content = `${row.category || ''} ${row.detail || ''}`.toLowerCase();
       if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
         otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
       }
     });
 
     return [...otherEvents, ...activeStates.values()];
-  }, [rawData, filterStartDate, filterEndDate]);
+  }, [logData]);
 
   // 📊 STATS
   const stats = useMemo(() => {
@@ -191,7 +190,22 @@ export default function App() {
       return passDate && isEnforceContext && isDrunk;
     }).length;
 
-    const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
+    // Calculate active lanes using state-based logic on filtered data
+    const activeLaneStates = new Map();
+    const sortedLogData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
+
+    sortedLogData.forEach(row => {
+      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+      const laneKey = `LANE-${locKey}`;
+
+      if (row.category === 'ช่องทางพิเศษ') {
+        activeLaneStates.set(laneKey, row);
+      } else if (row.category === 'ปิดช่องทางพิเศษ') {
+        activeLaneStates.delete(laneKey);
+      }
+    });
+
+    const activeLaneCount = activeLaneStates.size;
     const openLaneCount = logData.filter(d => d.category === 'ช่องทางพิเศษ').length;
     const closeLaneCount = logData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
 

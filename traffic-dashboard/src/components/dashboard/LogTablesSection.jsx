@@ -6,9 +6,88 @@ export default function LogTablesSection({ logData, accidentLogData }) {
   // State for toggling closed lanes
   const [showClosedLanes, setShowClosedLanes] = useState(false);
 
-  // Filter and separate special lanes data
-  const activeLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
+  // Enhanced processing for special lanes
+  const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
   const closedLanes = logData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
+
+  // Helper: Format duration in Thai
+  const formatDuration = (minutes) => {
+    if (!minutes || minutes < 0) return null;
+    const hours = Math.floor(minutes / 60);
+    const mins = Math.round(minutes % 60);
+    if (hours > 0 && mins > 0) return `${hours} ชม. ${mins} นาที`;
+    if (hours > 0) return `${hours} ชม.`;
+    return `${mins} นาที`;
+  };
+
+  // Enhanced lanes with all features
+  const enhancedLanes = openLanes.map(openLane => {
+    const key = `${openLane.div}-${openLane.st}-${openLane.road}-${openLane.dir}`;
+
+    // Feature 1 & 2: Find closest close event (handles multiple open/close cycles)
+    const matchingCloses = closedLanes.filter(closeLane => {
+      const closeKey = `${closeLane.div}-${closeLane.st}-${closeLane.road}-${closeLane.dir}`;
+      return closeKey === key && closeLane.timestamp > openLane.timestamp;
+    });
+
+    const closestClose = matchingCloses.length > 0
+      ? matchingCloses.reduce((closest, current) =>
+        current.timestamp < closest.timestamp ? current : closest
+      )
+      : null;
+
+    // Feature 1: Calculate duration
+    const durationMinutes = closestClose
+      ? (closestClose.timestamp - openLane.timestamp) / 1000 / 60
+      : null;
+
+    // Feature 2: Pattern detection
+    const isStillActive = !closestClose; // Never closed
+    const isOpenTooLong = durationMinutes && durationMinutes > 240; // >4 hours
+
+    return {
+      ...openLane,
+      closeInfo: closestClose ? {
+        time: closestClose.time,
+        date: closestClose.date,
+        timestamp: closestClose.timestamp
+      } : null,
+      duration: durationMinutes,
+      durationText: formatDuration(durationMinutes),
+      isStillActive,
+      isOpenTooLong,
+      locationKey: key
+    };
+  });
+
+  // Feature 4: Usage statistics per location
+  const usageStats = {};
+  enhancedLanes.forEach(lane => {
+    if (!usageStats[lane.locationKey]) {
+      usageStats[lane.locationKey] = {
+        openCount: 0,
+        durations: [],
+        location: `ทล.${lane.road} กม.${lane.km} ${lane.dir}`
+      };
+    }
+    usageStats[lane.locationKey].openCount++;
+    if (lane.duration) {
+      usageStats[lane.locationKey].durations.push(lane.duration);
+    }
+  });
+
+  // Calculate averages
+  Object.keys(usageStats).forEach(key => {
+    const stat = usageStats[key];
+    if (stat.durations.length > 0) {
+      stat.avgDuration = stat.durations.reduce((a, b) => a + b, 0) / stat.durations.length;
+      stat.maxDuration = Math.max(...stat.durations);
+    }
+  });
+
+  // Feature 3: Separate still active from closed
+  const stillActiveLanes = enhancedLanes.filter(l => l.isStillActive);
+  const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
@@ -32,67 +111,76 @@ export default function LogTablesSection({ logData, accidentLogData }) {
         </div>
       </div>
 
-      {/* Middle: Special Lanes - Grouped by Status */}
+      {/* Middle: Special Lanes - Enhanced with Duration & Statistics */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden">
         <div className="px-4 py-3 bg-green-900/20 border-b border-green-900/50 flex justify-between items-center">
           <h3 className="text-green-200 text-sm font-bold flex items-center gap-2">
-            <ArrowRightCircle size={16} className="text-green-500" /> ช่องทางพิเศษ
+            <ArrowRightCircle size={16} className="text-green-500" /> ช่องทางพิเศษ (Enhanced)
           </h3>
           <span className="text-xs text-green-300 bg-green-900/30 px-2 py-1 rounded border border-green-800">
-            เปิด {activeLanes.length} / ปิด {closedLanes.length}
+            Active {stillActiveLanes.length} / Total {enhancedLanes.length}
           </span>
         </div>
 
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900/30">
-          {/* Active Lanes Section */}
-          {activeLanes.length > 0 && (
+          {/* Still Active Lanes */}
+          {stillActiveLanes.length > 0 && (
             <div className="mb-2">
               <div className="sticky top-0 z-10 px-3 py-2 bg-green-900/40 border-b border-green-800/50">
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  <span className="text-xs font-bold text-green-300">🟢 ช่องทางที่เปิดอยู่</span>
+                  <span className="text-xs font-bold text-green-300">🟢 ยังเปิดอยู่</span>
                   <span className="text-[10px] text-green-400 bg-green-900/50 px-1.5 py-0.5 rounded">
-                    {activeLanes.length} รายการ
+                    {stillActiveLanes.length} รายการ
                   </span>
                 </div>
               </div>
               <table className="w-full text-xs text-left text-slate-300">
                 <tbody className="divide-y divide-green-900/30">
-                  {activeLanes.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-green-900/20 transition-colors bg-green-950/20">
-                      <td className="px-3 py-3 align-top whitespace-nowrap">
-                        <div className="text-green-300 font-mono font-bold">{item.time} น.</div>
-                        <div className="text-[10px] text-slate-500">{item.date}</div>
-                      </td>
-                      <td className="px-3 py-3 align-top whitespace-nowrap">
-                        <span className="bg-slate-900 border border-green-700 text-green-200 px-1.5 py-0.5 rounded text-[10px]">
-                          กก.{item.div} ส.ทล.{item.st}
-                        </span>
-                      </td>
-                      <td className="px-3 py-3 align-top">
-                        <div className="text-slate-200 font-bold flex items-start gap-1">
-                          <MapPin size={12} className="mt-0.5 text-green-400 flex-shrink-0" />
-                          <span>ทล.{item.road}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400 pl-4">กม.{item.km} {item.dir}</div>
-                      </td>
-                      <td className="px-3 py-3 align-top">
-                        <div className="text-slate-200 whitespace-pre-wrap leading-relaxed">{item.detail}</div>
-                        <div className="mt-1">
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white shadow-sm">
-                            🟢 เปิด
+                  {stillActiveLanes.map((lane, idx) => {
+                    const stats = usageStats[lane.locationKey];
+                    return (
+                      <tr key={idx} className="hover:bg-green-900/20 transition-colors bg-green-950/20">
+                        <td className="px-3 py-3 align-top whitespace-nowrap">
+                          <div className="text-green-300 font-mono font-bold">{lane.time} น.</div>
+                          <div className="text-[10px] text-slate-500">{lane.date}</div>
+                        </td>
+                        <td className="px-3 py-3 align-top whitespace-nowrap">
+                          <span className="bg-slate-900 border border-green-700 text-green-200 px-1.5 py-0.5 rounded text-[10px]">
+                            กก.{lane.div} ส.ทล.{lane.st}
                           </span>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="px-3 py-3 align-top">
+                          <div className="text-slate-200 font-bold flex items-start gap-1">
+                            <MapPin size={12} className="mt-0.5 text-green-400 flex-shrink-0" />
+                            <span>ทล.{lane.road} กม.{lane.km}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">{lane.dir}</div>
+                          {stats && stats.openCount > 1 && (
+                            <div className="text-[9px] text-amber-400 mt-0.5">📍 จุดนี้เปิด {stats.openCount} ครั้ง</div>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 align-top">
+                          <div className="text-slate-200 text-[11px] leading-relaxed line-clamp-2">{lane.detail}</div>
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-600 text-white shadow-sm">
+                              🟢 เปิดอยู่
+                            </span>
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-900/40 text-amber-300 border border-amber-700">
+                              ⚠️ ยังไม่ปิด
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* Closed Lanes Section */}
-          {closedLanes.length > 0 && (
+          {/* Closed Lanes (with duration) */}
+          {closedActiveLanes.length > 0 && (
             <div className="border-t-2 border-slate-700">
               <button
                 onClick={() => setShowClosedLanes(!showClosedLanes)}
@@ -101,10 +189,10 @@ export default function LogTablesSection({ logData, accidentLogData }) {
                 <div className="flex items-center gap-2">
                   <div className="w-2 h-2 rounded-full bg-slate-500"></div>
                   <span className="text-xs font-bold text-slate-400 group-hover:text-slate-300">
-                    🔴 ช่องทางที่ปิดแล้ว
+                    ✅ เปิดแล้ว-ปิดแล้ว
                   </span>
                   <span className="text-[10px] text-slate-500 bg-slate-700 px-1.5 py-0.5 rounded">
-                    {closedLanes.length} รายการ
+                    {closedActiveLanes.length} รายการ
                   </span>
                 </div>
                 <div className="flex items-center gap-1 text-[10px] text-slate-500">
@@ -116,34 +204,48 @@ export default function LogTablesSection({ logData, accidentLogData }) {
               {showClosedLanes && (
                 <table className="w-full text-xs text-left text-slate-300">
                   <tbody className="divide-y divide-slate-700/30">
-                    {closedLanes.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-slate-700/20 transition-colors opacity-60">
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                          <div className="text-slate-400 font-mono font-bold">{item.time} น.</div>
-                          <div className="text-[10px] text-slate-600">{item.date}</div>
-                        </td>
-                        <td className="px-3 py-3 align-top whitespace-nowrap">
-                          <span className="bg-slate-900 border border-slate-600 text-slate-400 px-1.5 py-0.5 rounded text-[10px]">
-                            กก.{item.div} ส.ทล.{item.st}
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <div className="text-slate-400 font-bold flex items-start gap-1">
-                            <MapPin size={12} className="mt-0.5 text-slate-500 flex-shrink-0" />
-                            <span>ทล.{item.road}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-500 pl-4">กม.{item.km} {item.dir}</div>
-                        </td>
-                        <td className="px-3 py-3 align-top">
-                          <div className="text-slate-400 whitespace-pre-wrap leading-relaxed">{item.detail}</div>
-                          <div className="mt-1">
-                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-700/60 text-slate-300">
-                              🔴 ปิด
+                    {closedActiveLanes.map((lane, idx) => {
+                      const stats = usageStats[lane.locationKey];
+                      return (
+                        <tr key={idx} className="hover:bg-slate-700/20 transition-colors opacity-75">
+                          <td className="px-3 py-3 align-top whitespace-nowrap">
+                            <div className="text-slate-400 font-mono font-bold">{lane.time} น.</div>
+                            <div className="text-[10px] text-slate-600">{lane.date}</div>
+                          </td>
+                          <td className="px-3 py-3 align-top whitespace-nowrap">
+                            <span className="bg-slate-900 border border-slate-600 text-slate-400 px-1.5 py-0.5 rounded text-[10px]">
+                              กก.{lane.div} ส.ทล.{lane.st}
                             </span>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <div className="text-slate-400 font-bold flex items-start gap-1">
+                              <MapPin size={12} className="mt-0.5 text-slate-500 flex-shrink-0" />
+                              <span>ทล.{lane.road} กม.{lane.km}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-500">{lane.dir}</div>
+                            {stats && stats.openCount > 1 && (
+                              <div className="text-[9px] text-slate-500 mt-0.5">📍 จุดนี้เปิด {stats.openCount} ครั้ง</div>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 align-top">
+                            <div className="text-slate-400 text-[11px] leading-relaxed line-clamp-2">{lane.detail}</div>
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-700 text-slate-300">
+                                🔴 ปิดแล้ว {lane.closeInfo.time} น.
+                              </span>
+                              {lane.durationText && (
+                                <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] ${lane.isOpenTooLong
+                                    ? 'bg-red-900/40 text-red-300 border border-red-700'
+                                    : 'bg-blue-900/40 text-blue-300 border border-blue-700'
+                                  }`}>
+                                  {lane.isOpenTooLong && '⚠️ '} เปิด {lane.durationText}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -151,7 +253,7 @@ export default function LogTablesSection({ logData, accidentLogData }) {
           )}
 
           {/* Empty State */}
-          {activeLanes.length === 0 && closedLanes.length === 0 && (
+          {stillActiveLanes.length === 0 && closedActiveLanes.length === 0 && (
             <div className="p-12 text-center text-slate-500">ไม่มีช่องทางพิเศษในช่วงนี้</div>
           )}
         </div>
