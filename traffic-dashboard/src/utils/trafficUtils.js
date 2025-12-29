@@ -55,23 +55,34 @@ export const getTrafficFromCoords = async (start, end) => {
       // Calculate delay ratio (penalty as % of total time)
       const delayRatio = penalty / timeSec;
 
+      // Time-based sensitivity (Rush Hour Detection)
+      const now = new Date();
+      const currentHour = now.getHours();
+      const isRushHour = (currentHour >= 7 && currentHour < 9) || (currentHour >= 17 && currentHour < 19);
+
+      // Adjusted thresholds based on time
+      // Rush hour: more sensitive (lower thresholds)
+      // Normal: standard thresholds
+      const congestedDelayThreshold = isRushHour ? 0.30 : 0.35;
+      const denseDelayThreshold = isRushHour ? 0.18 : 0.20;
+      const congestedSpeedThreshold = isRushHour ? 12 : 15;
+      const denseSpeedThreshold = isRushHour ? 35 : 40;
+
       let result = { code: 0, status: "" };
 
-      // Enhanced Logic:
-      // 1. Base on speed (adjusted for urban roads: 40 km/h threshold)
-      // 2. Factor in penalty/delay ratio (high penalty = likely traffic)
+      // Enhanced Logic with Time-based Adjustment:
+      // 1. Adjusted thresholds (0.35/0.20 base, 0.30/0.18 rush hour)
+      // 2. Speed thresholds (15/40 base, 12/35 rush hour)
+      // 3. Factor in penalty/delay ratio
 
-      // High delay (penalty > 30% of time) OR very slow = Congested
-      if (delayRatio > 0.3 || speed < 15) {
+      if (delayRatio > congestedDelayThreshold || speed < congestedSpeedThreshold) {
         result.status = "ติดขัด";
         result.code = 3;
       }
-      // Moderate delay (15-30%) OR moderate speed = Dense
-      else if (delayRatio > 0.15 || speed < 40) {
+      else if (delayRatio > denseDelayThreshold || speed < denseSpeedThreshold) {
         result.status = "หนาแน่น";
         result.code = 2;
       }
-      // Low delay and good speed = Fluid
       else {
         result.status = "คล่องตัว";
         result.code = 1;
