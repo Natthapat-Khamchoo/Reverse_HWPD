@@ -51,28 +51,28 @@ function getThresholds(roadId, isRushHour, isWeekend) {
   // Base thresholds by road type
   let baseThresholds = {
     motorway: {
-      // ทางพิเศษ - ความเร็วสูง
-      fluidSpeed: 80,
-      denseSpeed: 60,
-      congestedSpeed: 40,
-      denseDelay: 0.15,
-      congestedDelay: 0.30
-    },
-    highway: {
-      // ทางหลวง - ความเร็วปานกลาง
+      // ทางพิเศษ - ยอมรับความเร็วต่ำกว่าเดิม
       fluidSpeed: 60,
       denseSpeed: 40,
-      congestedSpeed: 20,
-      denseDelay: 0.18,
-      congestedDelay: 0.32
+      congestedSpeed: 25,
+      denseDelay: 0.30,
+      congestedDelay: 0.50
+    },
+    highway: {
+      // ทางหลวง - ยอมรับความเร็วต่ำกว่าเดิมมาก
+      fluidSpeed: 40,
+      denseSpeed: 25,
+      congestedSpeed: 12,
+      denseDelay: 0.35,
+      congestedDelay: 0.55
     },
     urban: {
-      // ถนนในเมือง - ความเร็วต่ำ
-      fluidSpeed: 45,
-      denseSpeed: 30,
-      congestedSpeed: 15,
-      denseDelay: 0.20,
-      congestedDelay: 0.35
+      // ถนนในเมือง - ยอมรับความเร็วต่ำมาก
+      fluidSpeed: 30,
+      denseSpeed: 18,
+      congestedSpeed: 8,
+      denseDelay: 0.40,
+      congestedDelay: 0.60
     }
   };
 
