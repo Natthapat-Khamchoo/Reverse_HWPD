@@ -28,14 +28,12 @@ export const analyzeTrafficText = (text) => {
   return { emoji: "📝", status: "รายงานตามข้อความ" };
 };
 
-const LONGDO_API_KEY = import.meta.env.VITE_LONGDO_API_KEY || "43c345d5dae4db42926bd41ae0b5b0fa";
-
 export const getTrafficFromCoords = async (start, end) => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
 
-  // Use the proxy path defined in vite.config.js
-  const url = `/api/longdo/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${LONGDO_API_KEY}`;
+  // Use Vercel API route (works in both dev and production)
+  const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
 
   try {
     const res = await fetch(url);
