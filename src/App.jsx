@@ -26,7 +26,16 @@ ChartJS.defaults.borderColor = '#334155';
 ChartJS.defaults.font.family = "'Sarabun', 'Prompt', sans-serif";
 
 const LONGDO_API_KEY = import.meta.env.VITE_LONGDO_API_KEY || "43c345d5dae4db42926bd41ae0b5b0fa";
-const AUTO_REFRESH_INTERVAL = 60000;
+const AUTO_REFRESH_INTERVAL = 60000; // 1 minute (safe for API limits)
+
+// Holiday Period Detection
+const isHolidayPeriod = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  return (month === 12 && date >= 29) || (month === 1 && date <= 4);
+};
+
 
 export default function App() {
   const [rawData, setRawData] = useState([]);
@@ -38,6 +47,7 @@ export default function App() {
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [generatedReportText, setGeneratedReportText] = useState("");
+  const [reportMetadata, setReportMetadata] = useState(null); // For feedback
   const [copySuccess, setCopySuccess] = useState(false);
   const [reportDirection, setReportDirection] = useState('outbound');
 
@@ -135,40 +145,39 @@ export default function App() {
 
   // 4. Map Data
   const mapData = useMemo(() => {
-    const dateFilteredData = rawData.filter(d => {
-      if (filterStartDate && filterEndDate) return d.date >= filterStartDate && d.date <= filterEndDate;
-      return true;
-    }).sort((a, b) => a.timestamp - b.timestamp);
+    // Sort logData by timestamp to process events chronologically
+    const sortedData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
 
     const activeStates = new Map();
     const otherEvents = [];
 
-    dateFilteredData.forEach(row => {
+    sortedData.forEach(row => {
       if (!row.lat || !row.lng) return;
 
       const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-      const content = `${row.category || ''} ${row.detail || ''} ${row.specialLane || ''} ${row.reportFormat || ''}`.toLowerCase();
       const laneKey = `LANE-${locKey}`;
-      const isOpening = content.includes('เปิดช่องทาง') || content.includes('open lane') || content.includes('reverselane') || row.category === 'ช่องทางพิเศษ';
-      const isClosing = content.includes('ปิดช่องทาง') || content.includes('ยุติ') || content.includes('ยกเลิก') || row.category === 'ปิดช่องทางพิเศษ';
 
-      if (isOpening) {
+      // Handle special lanes with state tracking
+      if (row.category === 'ช่องทางพิเศษ') {
         activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
-      } else if (isClosing) {
+      } else if (row.category === 'ปิดช่องทางพิเศษ') {
         activeStates.delete(laneKey);
       }
 
+      // Handle accidents (only kkk.8)
       if (row.category === 'อุบัติเหตุ' && row.div === '8') {
         otherEvents.push({ ...row, pinType: 'event' });
       }
 
+      // Handle drunk driving arrests
+      const content = `${row.category || ''} ${row.detail || ''}`.toLowerCase();
       if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
         otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
       }
     });
 
     return [...otherEvents, ...activeStates.values()];
-  }, [rawData, filterStartDate, filterEndDate]);
+  }, [logData]);
 
   // 📊 STATS
   const stats = useMemo(() => {
@@ -181,9 +190,24 @@ export default function App() {
       return passDate && isEnforceContext && isDrunk;
     }).length;
 
-    const activeLaneCount = mapData.filter(d => d.pinType === 'lane').length;
-    const openLaneCount = visualData.filter(d => d.category === 'ช่องทางพิเศษ').length;
-    const closeLaneCount = visualData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    // Calculate active lanes using state-based logic on filtered data
+    const activeLaneStates = new Map();
+    const sortedLogData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
+
+    sortedLogData.forEach(row => {
+      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+      const laneKey = `LANE-${locKey}`;
+
+      if (row.category === 'ช่องทางพิเศษ') {
+        activeLaneStates.set(laneKey, row);
+      } else if (row.category === 'ปิดช่องทางพิเศษ') {
+        activeLaneStates.delete(laneKey);
+      }
+    });
+
+    const activeLaneCount = activeLaneStates.size;
+    const openLaneCount = logData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+    const closeLaneCount = logData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
 
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
@@ -194,7 +218,7 @@ export default function App() {
       stack: 'Stack 0',
     }));
     return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
-  }, [visualData, rawData, filterStartDate, filterEndDate, mapData]);
+  }, [visualData, rawData, filterStartDate, filterEndDate, mapData, logData]);
 
   const handleChartClick = useCallback((event, elements) => {
     if (!elements || elements.length === 0) return;
@@ -234,8 +258,10 @@ export default function App() {
     setIsGeneratingReport(true);
     setCopySuccess(false);
     try {
-      const report = await generateTrafficReport(rawData, reportDirection);
-      setGeneratedReportText(report);
+      const result = await generateTrafficReport(rawData, reportDirection);
+      // New format returns { text, metadata, direction, timestamp }
+      setGeneratedReportText(result.text);
+      setReportMetadata(result.metadata);
       setShowReportModal(true);
     } catch (e) {
       console.error(e); alert("❌ เกิดข้อผิดพลาดในการสร้างรายงาน");
@@ -275,7 +301,21 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
-      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+
+      {/* Holiday Alert Banner */}
+      {isHolidayPeriod() && (
+        <div className="mb-4 p-4 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg border-2 border-orange-400 shadow-xl animate-pulse">
+          <div className="flex items-center gap-3">
+            <div className="text-3xl">🎊</div>
+            <div>
+              <div className="font-bold text-lg">⚠️ ช่วงเทศกาลปีใหม่ (29 ธ.ค. - 4 ม.ค.)</div>
+              <div className="text-sm mt-1 opacity-90">การจราจรอาจหนาแน่นกว่าปกติมาก โปรดติดตามสถานการณ์อย่างใกล้ชิดและสร้างรายงานบ่อยๆ | ระบบปรับเกณฑ์การทำนายให้เข้มงวดขึ้นอัตโนมัติ</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />

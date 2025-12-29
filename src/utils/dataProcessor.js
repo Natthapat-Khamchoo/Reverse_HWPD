@@ -154,10 +154,18 @@ export const processSheetData = (rawData, sourceFormat) => {
             const traffic = getVal(['สภาพจราจร']);
             const tailback = getVal(['ท้ายแถว']);
 
-            if (specialLane && specialLane !== '-' && specialLane.length > 1 && !specialLane.includes('ปิด')) {
+            // Fixed: Check for "ปิดช่องทาง" at the start, not just "ปิด" anywhere
+            // because "เปิด" contains "ปิด" as substring!
+            const isClosing = specialLane && (
+                specialLane.startsWith('ปิด') ||
+                specialLane.includes('ยกเลิก') ||
+                specialLane.includes('ยุติ')
+            );
+
+            if (specialLane && specialLane !== '-' && specialLane.length > 1 && !isClosing) {
                 mainCategory = 'ช่องทางพิเศษ';
                 detailText = specialLane; statusColor = 'bg-green-500';
-            } else if (specialLane && (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก'))) {
+            } else if (isClosing) {
                 mainCategory = 'ปิดช่องทางพิเศษ';
                 detailText = specialLane; statusColor = 'bg-slate-500';
             } else if (traffic) {
