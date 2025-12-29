@@ -2,14 +2,14 @@ import React, { useState } from 'react';
 import { Siren, AlertTriangle, MapPin, ArrowRightCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../constants/config';
 
-export default function LogTablesSection({ logData, accidentLogData }) {
+export default function LogTablesSection({ logData, accidentLogData, specialLaneLogData }) {
   // State for toggling sections
   const [showClosedLanes, setShowClosedLanes] = useState(false);
-  const [showLocationSummary, setShowLocationSummary] = useState(true); // Show by default
+  const [showLocationSummary, setShowLocationSummary] = useState(true);
 
   // Enhanced processing for special lanes
-  const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
-  const closedLanes = logData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
+  const openLanes = specialLaneLogData.filter(item => item.category === 'ช่องทางพิเศษ');
+  const closedLanes = specialLaneLogData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
 
   // Helper: Format duration in Thai
   const formatDuration = (minutes) => {
@@ -23,12 +23,15 @@ export default function LogTablesSection({ logData, accidentLogData }) {
 
   // Enhanced lanes with all features
   const enhancedLanes = openLanes.map(openLane => {
-    const key = `${openLane.div}-${openLane.st}-${openLane.road}-${openLane.dir}`;
+    const key = `${openLane.div}-${openLane.st}`;
 
-    // Feature 1 & 2: Find closest close event (handles multiple open/close cycles)
+    // Find closest close event (same unit, within 8 hours)
     const matchingCloses = closedLanes.filter(closeLane => {
-      const closeKey = `${closeLane.div}-${closeLane.st}-${closeLane.road}-${closeLane.dir}`;
-      return closeKey === key && closeLane.timestamp > openLane.timestamp;
+      const closeKey = `${closeLane.div}-${closeLane.st}`;
+      const sameUnit = closeKey === key;
+      const afterOpen = closeLane.timestamp > openLane.timestamp;
+      const within8Hours = (closeLane.timestamp - openLane.timestamp) < (8 * 60 * 60 * 1000);
+      return sameUnit && afterOpen && within8Hours;
     });
 
     const closestClose = matchingCloses.length > 0
@@ -37,14 +40,12 @@ export default function LogTablesSection({ logData, accidentLogData }) {
       )
       : null;
 
-    // Feature 1: Calculate duration
     const durationMinutes = closestClose
       ? (closestClose.timestamp - openLane.timestamp) / 1000 / 60
       : null;
 
-    // Feature 2: Pattern detection
-    const isStillActive = !closestClose; // Never closed
-    const isOpenTooLong = durationMinutes && durationMinutes > 240; // >4 hours
+    const isStillActive = !closestClose;
+    const isOpenTooLong = durationMinutes && durationMinutes > 240;
 
     return {
       ...openLane,
@@ -61,6 +62,10 @@ export default function LogTablesSection({ logData, accidentLogData }) {
     };
   });
 
+  // Feature 3: Separate still active from closed
+  const stillActiveLanes = enhancedLanes.filter(l => l.isStillActive);
+  const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
+
   // Feature 4: Usage statistics per location
   const usageStats = {};
   enhancedLanes.forEach(lane => {
@@ -72,7 +77,7 @@ export default function LogTablesSection({ logData, accidentLogData }) {
         road: lane.road,
         km: lane.km,
         dir: lane.dir,
-        units: new Set() // Track unique units
+        units: new Set()
       };
     }
     usageStats[lane.locationKey].openCount++;
@@ -82,19 +87,15 @@ export default function LogTablesSection({ logData, accidentLogData }) {
     }
   });
 
-  // Calculate averages and convert Set to Array
+  // Calculate averages
   Object.keys(usageStats).forEach(key => {
     const stat = usageStats[key];
-    stat.units = Array.from(stat.units); // Convert Set to Array
+    stat.units = Array.from(stat.units);
     if (stat.durations.length > 0) {
       stat.avgDuration = stat.durations.reduce((a, b) => a + b, 0) / stat.durations.length;
       stat.maxDuration = Math.max(...stat.durations);
     }
   });
-
-  // Feature 3: Separate still active from closed
-  const stillActiveLanes = enhancedLanes.filter(l => l.isStillActive);
-  const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">

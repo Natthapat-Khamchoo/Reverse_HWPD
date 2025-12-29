@@ -135,6 +135,35 @@ export default function App() {
     }).sort((a, b) => b.timestamp - a.timestamp);
   }, [rawData, filterStartDate, filterEndDate]);
 
+  // 2.5 Special Lane Data (ไม่สนใจ category/division/station filter)
+  const specialLaneLogData = useMemo(() => {
+    const filtered = rawData.filter(item => {
+      // Filter เฉพาะวันที่ (ถ้ามี)
+      let passDate = true;
+      if (filterStartDate && filterEndDate) {
+        passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+      }
+      // Filter เฉพาะข้อมูลช่องทางพิเศษ (เปิด/ปิด)
+      const isSpecialLane = item.category === 'ช่องทางพิเศษ' || item.category === 'ปิดช่องทางพิเศษ';
+      return passDate && isSpecialLane;
+    });
+
+    // Debug: แสดง categories ทั้งหมดที่มีใน rawData
+    const allCategories = [...new Set(rawData.map(x => x.category))];
+    const specialCategories = allCategories.filter(c => c && (c.includes('ช่องทาง') || c.includes('พิเศษ')));
+
+    console.log('🔧 App.jsx - specialLaneLogData:', {
+      rawDataCount: rawData.length,
+      filteredCount: filtered.length,
+      filterDates: { start: filterStartDate, end: filterEndDate },
+      allCategoriesCount: allCategories.length,
+      specialCategories: specialCategories,
+      sample: filtered.slice(0, 2)
+    });
+
+    return filtered.sort((a, b) => b.timestamp - a.timestamp);
+  }, [rawData, filterStartDate, filterEndDate]);
+
   // 3. Visual Data
   const visualData = useMemo(() => {
     return logData.filter(item => {
@@ -320,7 +349,7 @@ export default function App() {
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />
       <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
-      <LogTablesSection logData={logData} accidentLogData={accidentLogData} />
+      <LogTablesSection logData={logData} accidentLogData={accidentLogData} specialLaneLogData={specialLaneLogData} />
       <TrendChartSection trendChartConfig={trendChartConfig} trendStart={trendStart} setTrendStart={setTrendStart} trendEnd={trendEnd} setTrendEnd={setTrendEnd} />
     </div>
   );
