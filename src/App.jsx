@@ -8,6 +8,7 @@ import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, 
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData } from './utils/dataProcessor';
 import { generateTrafficReport } from './utils/reportGenerator';
+import { generateProblemReport } from './utils/problemReportGenerator';
 
 // Components
 import SystemLoader from './components/common/SystemLoader';
@@ -18,6 +19,7 @@ import MapAndChartSection from './components/dashboard/MapAndChartSection';
 import LogTablesSection from './components/dashboard/LogTablesSection';
 import TrendChartSection from './components/dashboard/TrendChartSection';
 import ReportModal from './components/report/ReportModal';
+import ProblemReportModal from './components/report/ProblemReportModal';
 
 // Registration
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -50,6 +52,12 @@ export default function App() {
   const [reportMetadata, setReportMetadata] = useState(null); // For feedback
   const [copySuccess, setCopySuccess] = useState(false);
   const [reportDirection, setReportDirection] = useState('outbound');
+
+  // Problem Report State
+  const [showProblemReportModal, setShowProblemReportModal] = useState(false);
+  const [problemReportText, setProblemReportText] = useState("");
+  const [problemReportMetadata, setProblemReportMetadata] = useState(null);
+  const [copyProblemSuccess, setCopyProblemSuccess] = useState(false);
 
   // Controls
   const [dateRangeOption, setDateRangeOption] = useState('today');
@@ -315,6 +323,30 @@ export default function App() {
     }
   };
 
+  const handleGenerateProblemReport = () => {
+    setCopyProblemSuccess(false);
+    const result = generateProblemReport(rawData);
+    setProblemReportText(result.text);
+    setProblemReportMetadata(result.metadata);
+    setShowProblemReportModal(true);
+  };
+
+  const handleCopyProblemText = () => {
+    const textToCopy = problemReportText;
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(textToCopy).then(() => setCopyProblemSuccess(true));
+    } else {
+      // Fallback
+      var textArea = document.createElement("textarea");
+      textArea.value = textToCopy;
+      document.body.appendChild(textArea);
+      textArea.select();
+      try { document.execCommand('copy'); setCopyProblemSuccess(true); }
+      catch (err) { console.error(err); }
+      document.body.removeChild(textArea);
+    }
+  };
+
   if (loading) return <SystemLoader />;
   if (error) return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-slate-900 text-white">
@@ -331,6 +363,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
       <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+      <ProblemReportModal show={showProblemReportModal} onClose={() => setShowProblemReportModal(false)} reportText={problemReportText} reportMetadata={problemReportMetadata} onCopy={handleCopyProblemText} copySuccess={copyProblemSuccess} />
 
       {/* Holiday Alert Banner */}
       {isHolidayPeriod() && (
@@ -345,7 +378,7 @@ export default function App() {
         </div>
       )}
 
-      <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
+      <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} onGenerateReportProblem={handleGenerateProblemReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />
       <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
