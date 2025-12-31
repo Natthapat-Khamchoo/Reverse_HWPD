@@ -154,12 +154,15 @@ export const processSheetData = (rawData, sourceFormat) => {
             const traffic = getVal(['สภาพจราจร']);
             const tailback = getVal(['ท้ายแถว']);
 
-            if (specialLane && specialLane !== '-' && specialLane.length > 1 && !specialLane.includes('ปิด')) {
+            // เช็คโดยตรง: ขึ้นต้นด้วย "เปิด" = เปิด, ขึ้นต้นด้วย "ปิด" หรือมี "ยกเลิก" = ปิด
+            if (specialLane && specialLane.startsWith('เปิด')) {
                 mainCategory = 'ช่องทางพิเศษ';
-                detailText = specialLane; statusColor = 'bg-green-500';
-            } else if (specialLane && (specialLane.includes('ปิด') || specialLane.includes('ยกเลิก'))) {
+                detailText = specialLane;
+                statusColor = 'bg-green-500';
+            } else if (specialLane && (specialLane.startsWith('ปิด') || specialLane.includes('ยกเลิก'))) {
                 mainCategory = 'ปิดช่องทางพิเศษ';
-                detailText = specialLane; statusColor = 'bg-slate-500';
+                detailText = specialLane;
+                statusColor = 'bg-slate-500';
             } else if (traffic) {
                 if (traffic.includes('ติดขัด') || traffic.includes('หนาแน่น') || traffic.includes('มาก')) {
                     mainCategory = 'จราจรติดขัด'; detailText = tailback ? `${traffic} ท้ายแถว ${tailback}` : traffic; statusColor = 'bg-yellow-500';
