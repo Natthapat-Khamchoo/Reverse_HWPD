@@ -18,6 +18,7 @@ import StatCards from './components/dashboard/StatCards';
 import MapAndChartSection from './components/dashboard/MapAndChartSection';
 import LogTablesSection from './components/dashboard/LogTablesSection';
 import TrendChartSection from './components/dashboard/TrendChartSection';
+import TimeAnalysisSection from './components/dashboard/TimeAnalysisSection';
 import ReportModal from './components/report/ReportModal';
 import ProblemReportModal from './components/report/ProblemReportModal';
 
@@ -246,6 +247,18 @@ export default function App() {
     const openLaneCount = logData.filter(d => d.category === 'ช่องทางพิเศษ').length;
     const closeLaneCount = logData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
 
+    const accidentCount = rawData.filter(item => {
+      let passDate = true;
+      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+      return passDate && item.category === 'อุบัติเหตุ';
+    }).length;
+
+    const trafficCount = rawData.filter(item => {
+      let passDate = true;
+      if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+      return passDate && (item.category.includes('จราจรติดขัด') || item.category.includes('รถมาก'));
+    }).length;
+
     const divisions = ["1", "2", "3", "4", "5", "6", "7", "8"];
     const mainCats = ['อุบัติเหตุ', 'จับกุม', 'ช่องทางพิเศษ', 'จราจรติดขัด', 'ว.43'];
     const datasets = mainCats.map(cat => ({
@@ -254,7 +267,7 @@ export default function App() {
       backgroundColor: CATEGORY_COLORS[cat] || '#cbd5e1',
       stack: 'Stack 0',
     }));
-    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
+    return { drunkCount, openLaneCount, closeLaneCount, activeLaneCount, accidentCount, trafficCount, divChartConfig: { labels: divisions.map(d => `กก.${d}`), datasets } };
   }, [visualData, rawData, filterStartDate, filterEndDate, mapData, logData]);
 
   const handleChartClick = useCallback((event, elements) => {
@@ -362,7 +375,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-900 p-4 font-sans text-slate-200 relative">
-      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} />
+      <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} stats={stats} />
       <ProblemReportModal show={showProblemReportModal} onClose={() => setShowProblemReportModal(false)} reportText={problemReportText} reportMetadata={problemReportMetadata} onCopy={handleCopyProblemText} copySuccess={copyProblemSuccess} />
 
       {/* Holiday Alert Banner */}
@@ -382,6 +395,10 @@ export default function App() {
       {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
       <StatCards visualData={visualData} stats={stats} />
       <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
+
+      {/* New Time Analysis Section */}
+      <TimeAnalysisSection rawData={rawData} filterStartDate={filterStartDate} filterEndDate={filterEndDate} />
+
       <LogTablesSection logData={logData} accidentLogData={accidentLogData} specialLaneLogData={specialLaneLogData} />
       <TrendChartSection trendChartConfig={trendChartConfig} trendStart={trendStart} setTrendStart={setTrendStart} trendEnd={trendEnd} setTrendEnd={setTrendEnd} />
     </div>

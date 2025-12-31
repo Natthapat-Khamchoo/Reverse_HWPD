@@ -1,8 +1,9 @@
 import React from 'react';
-import { ClipboardCopy, X, Copy, CheckCircle, Loader2 } from 'lucide-react';
+import { ClipboardCopy, X, Copy, CheckCircle, Loader2, FileText } from 'lucide-react';
+import { generatePDFReport } from '../../utils/pdfGenerator';
 import FeedbackSection from './FeedbackSection';
 
-export default function ReportModal({ show, onClose, isGenerating, reportText, reportMetadata, onCopy, copySuccess, direction }) {
+export default function ReportModal({ show, onClose, isGenerating, reportText, reportMetadata, onCopy, copySuccess, direction, stats }) {
   if (isGenerating) {
     return (
       <div className="fixed inset-0 z-[9999] bg-slate-900/80 backdrop-blur-sm flex flex-col items-center justify-center">
@@ -28,10 +29,22 @@ export default function ReportModal({ show, onClose, isGenerating, reportText, r
         {/* Feedback Section */}
         <FeedbackSection reportText={reportText} reportMetadata={reportMetadata} direction={direction} />
 
-        <div className="p-4 bg-slate-900 border-t border-slate-700">
-          <button onClick={onCopy} className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${copySuccess ? "bg-green-600 text-white hover:bg-green-500" : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"}`}>
-            {copySuccess ? <CheckCircle size={20} /> : <Copy size={20} />} {copySuccess ? "คัดลอกสำเร็จแล้ว!" : "แตะเพื่อคัดลอกข้อความ"}
-          </button>
+        <div className="p-4 bg-slate-900 border-t border-slate-700 flex flex-col gap-2">
+          {/* Action Buttons Group */}
+          <div className="flex gap-2 w-full">
+            {/* Copy Button */}
+            <button onClick={onCopy} className={`flex-1 py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all ${copySuccess ? "bg-green-600 text-white hover:bg-green-500" : "bg-yellow-500 text-slate-900 hover:bg-yellow-400"}`}>
+              {copySuccess ? <CheckCircle size={20} /> : <Copy size={20} />} {copySuccess ? "คัดลอกสำเร็จ" : "คัดลอกข้อความ"}
+            </button>
+
+            {/* PDF Button */}
+            <button
+              onClick={() => generatePDFReport(reportText, stats, reportMetadata)}
+              className="px-4 py-3 bg-blue-600 text-white hover:bg-blue-500 rounded-lg font-bold flex items-center justify-center gap-2 transition-colors min-w-[120px]"
+            >
+              <FileText size={20} /> PDF
+            </button>
+          </div>
         </div>
       </div>
     </div>
