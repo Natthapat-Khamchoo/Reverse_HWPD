@@ -98,17 +98,30 @@ export const processSheetData = (rawData, sourceFormat) => {
 
         // Smart Extraction from raw string if explicit fields are empty
         if ((road === '-' || road === '') && locRaw) {
-            // Try to find "ทล.XXX" or "No.XXX" or "Route XXX"
-            const roadMatch = locRaw.match(/(?:ทล|หมายเลข|no|route)\.?\s*(\d+)/i) || locRaw.match(/^(\d+)\s*\//);
+            // Pattern 1: Standard "ทล.XXX" or "ทล XXX" or "Route XXX" or "มอเตอร์เวย์สาย 9"
+            // รองรับ: ทล.9, ทล 32, ทล.340, สาย 7, หมายเลข 9, M7, M81, ทล.พ.9
+            const roadMatch = locRaw.match(/(?:ทล\.พ\.|ทล|หมายเลข|no|route|สาย)\.?\s*(\d+)/i) ||
+                locRaw.match(/(?:m|M)\s*(\d+)/) || // Case "M7", "M 81"
+                locRaw.match(/motorway\s*(\d+)/i) ||
+                locRaw.match(/^(\d+)\s*\//); // Case "9/1200"
+
             if (roadMatch) road = roadMatch[1];
 
-            // Try to find KM
-            const kmMatch = locRaw.match(/(?:กม)\.?\s*(\d+)/i);
+            // Pattern 2: KM Extraction
+            // รองรับ: กม.20, กม 20+500, (20+500), กม.20+000
+            const kmMatch = locRaw.match(/(?:กม|km)\.?\s*(\d+(?:\+\d+)?)/i) ||
+                locRaw.match(/\s\((\d+\+\d+)\)/) || // Case "ทล.340(30+400)"
+                locRaw.match(/(\d+\+\d+)/); // Case "30+400" loose match
+
             if (kmMatch) km = kmMatch[1];
 
-            // Try to find Direction
+            // Direction Logic
             if (locRaw.includes('ขาเข้า')) dir = 'ขาเข้า';
             else if (locRaw.includes('ขาออก')) dir = 'ขาออก';
+            else if (locRaw.includes('มุ่งหน้า')) {
+                const destMatch = locRaw.match(/มุ่งหน้า\s*([^\s]+)/);
+                if (destMatch) dir = `มุ่งหน้า${destMatch[1]}`;
+            }
         }
 
         // RELAXED FILTERING: Don't drop immediately if road/km missing, unless locRaw is also missing
