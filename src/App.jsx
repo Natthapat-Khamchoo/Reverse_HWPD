@@ -7,7 +7,7 @@ import {
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
 import { getThaiDateStr, parseCSV } from './utils/helpers';
 import { processSheetData, calculateSpecialLaneStats } from './utils/dataProcessor';
-import { generateTrafficReport } from './utils/reportGenerator';
+import { generateTrafficReport, generateStartupSummary } from './utils/reportGenerator';
 import { generateProblemReport, formatBlock } from './utils/problemReportGenerator';
 
 // Components
@@ -118,15 +118,11 @@ export default function App() {
       setRawData(allData);
       setLastUpdated(new Date());
 
-      // Prepare Summary Reports (Both Inbound and Outbound) - Always update to keep in sync
-      Promise.all([
-        generateTrafficReport(allData, 'outbound', LONGDO_API_KEY),
-        generateTrafficReport(allData, 'inbound', LONGDO_API_KEY)
-      ]).then(([outboundReport, inboundReport]) => {
-        setSummaryReports({
-          outbound: outboundReport,
-          inbound: inboundReport
-        });
+      // Use lightweight summary for startup (No API Cost)
+      const simpleSummary = generateStartupSummary(allData);
+      setSummaryReports({
+        outbound: { text: simpleSummary, metadata: [], direction: 'outbound' },
+        inbound: { text: "ดูรายละเอียดเพิ่มเติมใน Dashboard", metadata: [], direction: 'inbound' }
       });
 
       if (!isBackground) {

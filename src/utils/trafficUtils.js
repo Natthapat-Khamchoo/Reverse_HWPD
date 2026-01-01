@@ -142,8 +142,17 @@ export const getTrafficFromCoords = async (start, end, roadId = null, apiKey = '
 
   try {
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
-    const json = await res.json();
+    const text = await res.text();
+
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}: ${text}`);
+
+    // Handle Longdo's text-based error responses (e.g. "throw 'Error'")
+    if (text.trim().startsWith('throw')) {
+      const errorMsg = text.replace(/throw\s*['"]|['"];?/g, '').trim();
+      throw new Error(errorMsg);
+    }
+
+    const json = JSON.parse(text);
 
     if (json && json.data && json.data.length > 0) {
       const route = json.data[0];

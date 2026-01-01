@@ -124,3 +124,39 @@ export const generateTrafficReport = async (rawData, direction, apiKey) => {
         timestamp: now.getTime()
     };
 };
+
+export const generateStartupSummary = (rawData) => {
+    const now = new Date();
+    const todayStr = getThaiDateStr(now);
+
+    // Filter for today's data
+    const todayData = rawData.filter(d => d.date === todayStr);
+
+    // 1. Drunk Driving (Enforcement)
+    const drunkCount = todayData.filter(d => d.category.includes('เมา') || d.detail.includes('เมา')).length;
+
+    // 2. Accidents
+    const accidentCount = todayData.filter(d => d.category.includes('อุบัติเหตุ')).length;
+
+    // 3. Special Lanes (Active)
+    // We need to use valid open/close pairs to determine active lanes
+    // Simple approach: Count 'Live' or use existing helper if possible, 
+    // but here we can just do a quick count of Open vs Close for today or rely on rawData logic
+    // Better: Filter 'ช่องทางพิเศษ' and check if there is a later 'ปิดช่องทางพิเศษ'
+    // For summary, let's just count "Open" events for today that don't have "Close" yet?
+    // Actually, calculateSpecialLaneStats is in dataProcessor.js, we can't easily import it here without circular dependency risks if dataProcessor imports helpers.
+    // Let's do a simple count of "Opened" events today for now, or just generic traffic incidents.
+    const specialLaneOpenCount = todayData.filter(d => d.category === 'ช่องทางพิเศษ').length;
+
+    // 4. Traffic Jams (Manual Reports)
+    const jamCount = todayData.filter(d =>
+        (d.category === 'จราจรติดขัด' || d.detail.includes('ติดขัด') || d.detail.includes('หนาแน่น')) &&
+        !d.category.includes('ช่องทางพิเศษ') // Exclude special lane openings from jam count
+    ).length;
+
+    return `📊 สรุปสถานการณ์ภาพรวม (${todayStr})\n` +
+        `🚔 เมาแล้วขับ: ${drunkCount} ราย\n` +
+        `💥 อุบัติเหตุ: ${accidentCount} ครั้ง\n` +
+        `🚧 ช่องทางพิเศษ (เปิดวันนี้): ${specialLaneOpenCount} จุด\n` +
+        `🚗 จราจรติดขัด: ${jamCount} จุด`;
+};
