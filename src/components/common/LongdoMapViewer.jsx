@@ -4,6 +4,8 @@ import { CATEGORY_COLORS, DIVISION_COLORS } from '../../constants/config';
 const LongdoMapViewer = ({ data, apiKey }) => {
   const mapInstance = useRef(null);
   const [status, setStatus] = useState("Loading...");
+  const [errorDetails, setErrorDetails] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
   const mapId = "longdo-map-container";
 
   // 1. ฟังก์ชันวาดหมุด (Marker)
@@ -98,14 +100,22 @@ const LongdoMapViewer = ({ data, apiKey }) => {
     let checkInterval = null;
 
     if (!document.getElementById(scriptId)) {
-      setStatus("Downloading Script...");
+      setStatus("Downloading Map Script...");
       const script = document.createElement('script');
       script.src = `https://api.longdo.com/map/?key=${apiKey}`;
       script.id = scriptId;
+
+      script.onerror = () => {
+        setStatus("Network Error: Cannot connect to Longdo API");
+        setErrorDetails("ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต");
+      };
+
       document.body.appendChild(script);
 
       script.onload = () => {
-        // โหลดเสร็จแล้ว รอ Init
+        if (!window.longdo) {
+          setStatus("Script Loaded but API Missing (Invalid Key?)");
+        }
       };
     }
 
@@ -118,11 +128,12 @@ const LongdoMapViewer = ({ data, apiKey }) => {
       } else {
         if (attempts > 40) {
           clearInterval(checkInterval);
-          setStatus("Timeout: Script loaded but Map failed to init. (Check API Key/Domain)");
+          setStatus("Connection Timeout");
+          setErrorDetails("เชื่อมต่อไม่ได้ (อาจเกิดจาก Key ผิด หรือ Domain ไม่ได้รับอนุญาต)");
         } else {
           // ยังไม่พร้อม... รอต่อไป
           if (window.longdo) setStatus("Initializing Map...");
-          else setStatus(`Waiting for Longdo API... (${attempts})`);
+          else setStatus(`Connecting to Map API... (${Math.floor(attempts / 2)}s)`);
         }
       }
     }, 500);
@@ -130,7 +141,17 @@ const LongdoMapViewer = ({ data, apiKey }) => {
     return () => {
       if (checkInterval) clearInterval(checkInterval);
     };
-  }, [apiKey]);
+  }, [apiKey, retryCount]); // Add retryCount dependency
+
+  const handleRetry = () => {
+    // Remove existing script to force reload
+    const existingScript = document.getElementById('longdo-map-script');
+    if (existingScript) existingScript.remove();
+
+    setStatus("Retrying...");
+    setErrorDetails(null);
+    setRetryCount(prev => prev + 1);
+  };
 
   // อัปเดตหมุดเมื่อข้อมูลเปลี่ยน
   useEffect(() => {
@@ -144,12 +165,21 @@ const LongdoMapViewer = ({ data, apiKey }) => {
         <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-300 z-10 bg-slate-800/95 p-4 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-yellow-500 mb-2"></div>
           <span className="text-xs font-mono font-bold text-yellow-400">{status}</span>
+          {errorDetails && <span className="text-xs text-red-400 mt-1">{errorDetails}</span>}
+
+          <button
+            onClick={handleRetry}
+            className="mt-3 px-3 py-1 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded border border-slate-500 transition-colors"
+          >
+            🔄 ลองเชื่อมต่อใหม่ (Retry)
+          </button>
+
           <div className="mt-4 text-[10px] text-slate-400 max-w-xs border border-slate-600 p-2 rounded">
             <strong>คำแนะนำแก้ไข:</strong><br />
             1. ไปที่ <a href="https://map.longdo.com/console" target="_blank" className="text-blue-400 underline">Longdo Console</a><br />
             2. เมนู My Keys &rarr; แก้ไข Key<br />
             3. ช่อง Referer/Domain ใส่ <code>*</code> แล้ว Save<br />
-            4. รอ 2 นาทีแล้ว Refresh หน้านี้
+            4. รอ 2 นาทีแล้วกดปุ่ม Retry
           </div>
         </div>
       )}
