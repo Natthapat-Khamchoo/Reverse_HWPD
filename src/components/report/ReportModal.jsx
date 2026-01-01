@@ -18,8 +18,8 @@ export default function ReportModal({ show, onClose, isGenerating, reportText, r
   if (!show) return null;
 
   return (
-    <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
-      <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-slate-600 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+      <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-modal-entry flex flex-col max-h-[90vh]">
         <div className="p-4 bg-slate-900 border-b border-slate-700 flex justify-between items-center">
           <h3 className="text-white font-bold flex items-center gap-2"><ClipboardCopy className="text-yellow-400" size={20} /> รายงานพร้อมคัดลอก {direction === 'outbound' ? '(ขาออก)' : '(ขาเข้า)'}</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-white p-1"><X size={24} /></button>

@@ -1,30 +1,77 @@
 
 import { getThaiDateStr } from './helpers';
 
+// Helper to format a single line block (Reusable)
+export const formatBlock = (item, type = 'general') => {
+    let headerEmoji = '🔴';
+    let headerTitle = 'จราจรติดขัด';
+
+    // Explicit Type Override or Auto-detect
+    if (item.category === 'อุบัติเหตุ' || type === 'accident') {
+        headerEmoji = '🚗';
+        headerTitle = 'อุบัติเหตุ';
+    } else if (item.category === 'ช่องทางพิเศษ' || type === 'activeLane') {
+        headerEmoji = '🟢';
+        headerTitle = 'ช่องทางพิเศษ (เปิด)';
+    } else if (item.category === 'ปิดช่องทางพิเศษ' || type === 'closedLane') {
+        headerEmoji = '🛑';
+        headerTitle = 'ช่องทางพิเศษ (ปิดแล้ว)';
+    } else if (item.category === 'จับกุม' || item.detail.includes('เมา')) {
+        headerEmoji = '🚔';
+        headerTitle = 'จับกุม/เมาแล้วขับ';
+    }
+
+    // Refine Jam based on severity
+    if (item.category === 'จราจรติดขัด') {
+        const txt = item.detail || '';
+        if (txt.includes('เคลื่อนตัวช้า') || txt.includes('ปานกลาง')) {
+            headerEmoji = '🟡';
+            headerTitle = 'รถมาก/ชะลอตัว';
+        }
+    }
+
+    const roadInfo = `ทล.${item.road} กม.${item.km}`;
+    const dirInfo = item.dir !== '-' ? `(${item.dir})` : '';
+    const detailTxt = item.detail || '-';
+    const orgInfo = `กก.${item.div} ส.ทล.${item.st}`;
+    const timeInfo = `${item.time} น.`;
+
+    let block = `${headerEmoji} [${headerTitle}]
+📍 จุดเกิดเหตุ: ${roadInfo} ${dirInfo}
+📝 รายละเอียด: ${detailTxt}
+🕒 เวลา: ${timeInfo} | 👮 หน่วย: ${orgInfo}`;
+
+    return {
+        text: block, // Full block text
+        meta: {
+            time: timeInfo,
+            date: item.date, // Add date for filtering
+            div: item.div,   // Add div for filtering
+            st: item.st,     // Add st for filtering
+            loc: roadInfo,
+            rawText: `${roadInfo} ${detailTxt} ${headerTitle}`.toLowerCase() // Add raw text for search
+        }
+    };
+};
+
 export const generateProblemReport = (rawData, todayOnly = true) => {
     // 1. Filter Data
     const now = new Date();
     const todayStr = getThaiDateStr(now);
-    const twoHoursAgo = now.getTime() - (2 * 60 * 60 * 1000);
 
     let filtered = rawData;
     if (todayOnly) {
         filtered = filtered.filter(item => item.date === todayStr);
     }
 
-    // Sort by timestamp (Newest first)
     filtered.sort((a, b) => b.timestamp - a.timestamp);
 
-    // 2. Group by Problem Type
     const jams = [];
     const accidents = [];
     const activeLanes = [];
 
-    // 2.1 Calculate Active Lanes
+    // Lane Logic (Same as before)
     const laneState = new Map();
-    // Use filtered data (or rawData if we want global state, but report usually focuses on filtered context)
-    // To be safe for state calculation, we should essentially use ALL data for state, but filter output by validity.
-    // However, for simplified "Problem Report" based on current view/filter, using filtered rawData is acceptable.
     const timeSorted = [...filtered].sort((a, b) => a.timestamp - b.timestamp);
 
     timeSorted.forEach(row => {
@@ -39,85 +86,30 @@ export const generateProblemReport = (rawData, todayOnly = true) => {
 
     activeLanes.push(...Array.from(laneState.values()).sort((a, b) => b.timestamp - a.timestamp));
 
-    // 2.2 Filter Jams & Accidents
     filtered.forEach(item => {
-        if (item.category === 'จราจรติดขัด') {
-            jams.push(item);
-        } else if (item.category === 'อุบัติเหตุ') {
-            accidents.push(item);
-        }
+        if (item.category === 'จราจรติดขัด') jams.push(item);
+        else if (item.category === 'อุบัติเหตุ') accidents.push(item);
     });
 
-    // 3. Helper to format a single line (New Structured Style)
-    const formatBlock = (item, type) => {
-        /*
-            🔴 [จราจรติดขัด]
-            📍 จุดเกิดเหตุ: ทล.1 กม.50 (ขาออก)
-            ⚠️ รายละเอียด: รถมากเคลื่อนตัวได้ช้า
-            🕒 12:00 น. | 👮 กก.1 ส.ทล.2
-        */
-
-        let headerEmoji = '🔴';
-        let headerTitle = 'จราจรติดขัด';
-
-        if (item.category === 'อุบัติเหตุ') {
-            headerEmoji = '🚗';
-            headerTitle = 'อุบัติเหตุ';
-        } else if (item.category === 'ช่องทางพิเศษ') {
-            headerEmoji = '🟢';
-            headerTitle = 'ช่องทางพิเศษ';
-        } else if (item.category === 'จราจรติดขัด') {
-            const txt = item.detail || '';
-            if (txt.includes('เคลื่อนตัวช้า') || txt.includes('ปานกลาง')) {
-                headerEmoji = '🟡';
-                headerTitle = 'รถมาก/ชะลอตัว';
-            }
-        }
-
-        const roadInfo = `ทล.${item.road} กม.${item.km}`;
-        const dirInfo = item.dir !== '-' ? `(${item.dir})` : '';
-        const detailTxt = item.detail || '-';
-        const orgInfo = `กก.${item.div} ส.ทล.${item.st}`;
-        const timeInfo = `${item.time} น.`;
-
-        let block = `${headerEmoji} [${headerTitle}]
-📍 จุดเกิดเหตุ: ${roadInfo} ${dirInfo}
-📝 รายละเอียด: ${detailTxt}
-🕒 เวลา: ${timeInfo} | 👮 หน่วย: ${orgInfo}`;
-
-        // Warning for long active lanes
-        if (type === 'lane') {
-            const isOpenLong = item.timestamp < twoHoursAgo;
-            if (isOpenLong) {
-                block += `\n⚠️ (เปิดนานกว่า 2 ชม.)`;
-            }
-        }
-
-        return block;
-    };
-
-    // 4. Build Text
-    const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
+    // Build Text
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
 
     let reportText = `📢 รายงานสรุปสถานการณ์ (จุดที่มีปัญหา)\nประจำวันที่ ${dateStr} เวลา ${timeStr} น.\n`;
     const separator = `\n--------------------------------\n`;
 
     const allItems = [];
-    // Prioritize: Accidents -> Jams -> Lanes
-    accidents.forEach(i => allItems.push(formatBlock(i, 'accident')));
-    jams.forEach(i => allItems.push(formatBlock(i, 'jam')));
-    activeLanes.forEach(i => allItems.push(formatBlock(i, 'lane')));
+    accidents.forEach(i => allItems.push(formatBlock(i, 'accident').text));
+    jams.forEach(i => allItems.push(formatBlock(i, 'jam').text));
+    activeLanes.forEach(i => allItems.push(formatBlock(i, 'activeLane').text));
 
     if (allItems.length > 0) {
-        reportText += separator;
-        reportText += allItems.join(separator);
-        reportText += separator;
+        reportText += separator + allItems.join(separator) + separator;
     } else {
         reportText += `\n✅ เหตุการณ์ปกติ ไม่พบจุดจราจรติดขัดหรืออุบัติเหตุในขณะนี้\n`;
     }
 
-    // Summary Footer
+    // Summary
     const summaryParts = [];
     if (accidents.length > 0) summaryParts.push(`อุบัติเหตุ: ${accidents.length}`);
     if (jams.length > 0) summaryParts.push(`รถติด: ${jams.length}`);

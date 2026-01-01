@@ -6,8 +6,8 @@ export default function ProblemReportModal({ show, onClose, reportText, reportMe
     if (!show) return null;
 
     return (
-        <div className="fixed inset-0 z-[9999] bg-slate-900/90 backdrop-blur-md flex items-center justify-center p-4">
-            <div className="bg-slate-800 w-full max-w-lg rounded-xl border border-red-500/50 shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
+            <div className="bg-slate-900 border border-slate-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden animate-modal-entry flex flex-col max-h-[90vh]">
 
                 {/* Header - Red Theme */}
                 <div className="p-4 bg-gradient-to-r from-red-900 to-slate-900 border-b border-red-700/50 flex justify-between items-center">
@@ -42,8 +42,8 @@ export default function ProblemReportModal({ show, onClose, reportText, reportMe
                     <button
                         onClick={onCopy}
                         className={`w-full py-3 rounded-lg font-bold flex items-center justify-center gap-2 transition-all shadow-lg ${copySuccess
-                                ? "bg-green-600 text-white hover:bg-green-500"
-                                : "bg-red-600 text-white hover:bg-red-500"
+                            ? "bg-green-600 text-white hover:bg-green-500"
+                            : "bg-red-600 text-white hover:bg-red-500"
                             }`}
                     >
                         {copySuccess ? <CheckCircle size={20} /> : <Copy size={20} />}

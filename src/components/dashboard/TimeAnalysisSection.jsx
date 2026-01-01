@@ -142,7 +142,7 @@ export default function TimeAnalysisSection({ rawData, filterStartDate, filterEn
       {isExpanded && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-in slide-in-from-top-2 duration-300">
           {/* Hourly Chart */}
-          <div className="bg-slate-800 rounded-lg p-4 shadow-lg border border-slate-700">
+          <div className="bg-slate-800 rounded-lg p-4 shadow-lg border border-slate-700 hover-lift-glow">
             <h3 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2">
               <Clock size={16} className="text-yellow-400" /> สถิติตามช่วงเวลา (Hourly)
             </h3>
@@ -152,7 +152,7 @@ export default function TimeAnalysisSection({ rawData, filterStartDate, filterEn
           </div>
 
           {/* Weekly Chart */}
-          <div className="bg-slate-800 rounded-lg p-4 shadow-lg border border-slate-700">
+          <div className="bg-slate-800 rounded-lg p-4 shadow-lg border border-slate-700 hover-lift-glow">
             <h3 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2">
               <Calendar size={16} className="text-green-400" /> สถิติตามวันในสัปดาห์ (Weekly)
             </h3>
