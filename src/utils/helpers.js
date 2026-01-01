@@ -36,6 +36,15 @@ export const formatTime24 = (rawTime) => {
   return `${hh.toString().padStart(2, '0')}:${mm.toString().padStart(2, '0')}`;
 };
 
+export const formatDuration = (minutes) => {
+  if (!minutes || minutes < 0) return null;
+  const hours = Math.floor(minutes / 60);
+  const mins = Math.round(minutes % 60);
+  if (hours > 0 && mins > 0) return `${hours} ชม. ${mins} นาที`;
+  if (hours > 0) return `${hours} ชม.`;
+  return `${mins} นาที`;
+};
+
 export const parseCSV = (text) => {
   if (!text) return [];
   const rows = []; let currentRow = []; let currentVal = ''; let insideQuote = false;

@@ -1,70 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Siren, AlertTriangle, MapPin, ArrowRightCircle, ChevronDown, ChevronUp } from 'lucide-react';
 import { CATEGORY_COLORS } from '../../constants/config';
+import { calculateSpecialLaneStats } from '../../utils/dataProcessor';
 
 export default function LogTablesSection({ logData, accidentLogData, specialLaneLogData }) {
   // State for toggling sections
   const [showClosedLanes, setShowClosedLanes] = useState(false);
   const [showLocationSummary, setShowLocationSummary] = useState(true);
 
-  // Enhanced processing for special lanes
-  const openLanes = specialLaneLogData.filter(item => item.category === 'ช่องทางพิเศษ');
-  const closedLanes = specialLaneLogData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
-
-  // Helper: Format duration in Thai
-  const formatDuration = (minutes) => {
-    if (!minutes || minutes < 0) return null;
-    const hours = Math.floor(minutes / 60);
-    const mins = Math.round(minutes % 60);
-    if (hours > 0 && mins > 0) return `${hours} ชม. ${mins} นาที`;
-    if (hours > 0) return `${hours} ชม.`;
-    return `${mins} นาที`;
-  };
+  // Enhanced processing for special lanes using shared logic
+  const { allEnhancedLanes, activeLanes: stillActiveLanes, closedActiveLanes } = useMemo(() => {
+    // If we only have specialLaneLogData (filtered), use that. 
+    // But calculateSpecialLaneStats expects RAW log data to separate Open vs Close.
+    // If specialLaneLogData contains BOTH Open and Close events, it works.
+    return calculateSpecialLaneStats(specialLaneLogData);
+  }, [specialLaneLogData]);
 
   // Enhanced lanes with all features
-  const enhancedLanes = openLanes.map(openLane => {
-    const key = `${openLane.div}-${openLane.st}`;
-
-    // Find closest close event (same unit, within 8 hours)
-    const matchingCloses = closedLanes.filter(closeLane => {
-      const closeKey = `${closeLane.div}-${closeLane.st}`;
-      const sameUnit = closeKey === key;
-      const afterOpen = closeLane.timestamp > openLane.timestamp;
-      const within8Hours = (closeLane.timestamp - openLane.timestamp) < (8 * 60 * 60 * 1000);
-      return sameUnit && afterOpen && within8Hours;
-    });
-
-    const closestClose = matchingCloses.length > 0
-      ? matchingCloses.reduce((closest, current) =>
-        current.timestamp < closest.timestamp ? current : closest
-      )
-      : null;
-
-    const durationMinutes = closestClose
-      ? (closestClose.timestamp - openLane.timestamp) / 1000 / 60
-      : null;
-
-    const isStillActive = !closestClose;
-    const isOpenTooLong = durationMinutes && durationMinutes > 240;
-
-    return {
-      ...openLane,
-      closeInfo: closestClose ? {
-        time: closestClose.time,
-        date: closestClose.date,
-        timestamp: closestClose.timestamp
-      } : null,
-      duration: durationMinutes,
-      durationText: formatDuration(durationMinutes),
-      isStillActive,
-      isOpenTooLong,
-      locationKey: key
-    };
-  });
-
-  // Feature 3: Separate still active from closed
-  const stillActiveLanes = enhancedLanes.filter(l => l.isStillActive);
-  const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
+  const enhancedLanes = allEnhancedLanes;
 
   // Feature 4: Usage statistics per location
   const usageStats = {};

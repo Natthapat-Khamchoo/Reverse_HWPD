@@ -6,7 +6,7 @@ import {
 // Config & Utils
 import { SHEET_TRAFFIC_URL, SHEET_ENFORCE_URL, SHEET_SAFETY_URL, ORG_STRUCTURE, CATEGORY_COLORS } from './constants/config';
 import { getThaiDateStr, parseCSV } from './utils/helpers';
-import { processSheetData } from './utils/dataProcessor';
+import { processSheetData, calculateSpecialLaneStats } from './utils/dataProcessor';
 import { generateTrafficReport } from './utils/reportGenerator';
 import { generateProblemReport, formatBlock } from './utils/problemReportGenerator';
 
@@ -296,23 +296,10 @@ export default function App() {
     }).length;
 
     // Calculate active lanes using state-based logic on filtered data
-    const activeLaneStates = new Map();
-    const sortedLogData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
-
-    sortedLogData.forEach(row => {
-      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-      const laneKey = `LANE-${locKey}`;
-
-      if (row.category === 'ช่องทางพิเศษ') {
-        activeLaneStates.set(laneKey, row);
-      } else if (row.category === 'ปิดช่องทางพิเศษ') {
-        activeLaneStates.delete(laneKey);
-      }
-    });
-
-    const activeLaneCount = activeLaneStates.size;
-    const openLaneCount = logData.filter(d => d.category === 'ช่องทางพิเศษ').length;
-    const closeLaneCount = logData.filter(d => d.category === 'ปิดช่องทางพิเศษ').length;
+    const specialLaneStats = calculateSpecialLaneStats(logData);
+    const activeLaneCount = specialLaneStats.activeCount;
+    const openLaneCount = specialLaneStats.openCount;
+    const closeLaneCount = specialLaneStats.closeCount;
 
     const accidentData = rawData.filter(item => {
       let passDate = true;

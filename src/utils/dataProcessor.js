@@ -1,4 +1,4 @@
-import { formatTime24 } from './helpers';
+import { formatTime24, formatDuration } from './helpers';
 
 export const processSheetData = (rawData, sourceFormat) => {
     const processed = rawData.map((row, index) => {
@@ -196,4 +196,76 @@ export const processSheetData = (rawData, sourceFormat) => {
     });
 
     return processed.filter(item => item !== null);
+};
+
+// New Helper: Calculate Special Lane Stats (Unifying Logic with LogTablesSection)
+export const calculateSpecialLaneStats = (logData) => {
+    // 1. Separate Open/Close events
+    const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
+    const closedLanes = logData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
+
+    // 2. Map Open events to Closing events using Enhanced Logic
+    // Logic matches LogTablesSection.jsx exactly:
+    // - Loose key matching (Div + St) for PAIRING (Open/Close detection)
+    // - Close must be AFTER Open
+    // - Close must be within 8 hours
+    const enhancedLanes = openLanes.map(openLane => {
+        const pairingKey = `${openLane.div}-${openLane.st}`;
+
+        // Find closest close event
+        const matchingCloses = closedLanes.filter(closeLane => {
+            const closeKey = `${closeLane.div}-${closeLane.st}`;
+            const sameUnit = closeKey === pairingKey;
+            const afterOpen = closeLane.timestamp > openLane.timestamp;
+            const within8Hours = (closeLane.timestamp - openLane.timestamp) < (8 * 60 * 60 * 1000);
+            return sameUnit && afterOpen && within8Hours;
+        });
+
+        const closestClose = matchingCloses.length > 0
+            ? matchingCloses.reduce((closest, current) =>
+                current.timestamp < closest.timestamp ? current : closest
+            )
+            : null;
+
+        const isStillActive = !closestClose;
+
+        // Calculate Duration
+        const durationMinutes = closestClose
+            ? (closestClose.timestamp - openLane.timestamp) / 1000 / 60
+            : null;
+
+        const isOpenTooLong = durationMinutes && durationMinutes > 240;
+
+        // Granular Location Key for Usage Stats Grouping
+        // This fixes the bug where different locations from the same unit were grouped together
+        const locationKey = `${openLane.div}-${openLane.st}-${openLane.road}-${openLane.km}-${openLane.dir}`;
+
+        return {
+            ...openLane,
+            isStillActive,
+            closestClose,
+            closeInfo: closestClose ? {
+                time: closestClose.time,
+                date: closestClose.date,
+                timestamp: closestClose.timestamp
+            } : null,
+            duration: durationMinutes,
+            durationText: formatDuration(durationMinutes),
+            isOpenTooLong,
+            locationKey
+        };
+    });
+
+    const activeLanes = enhancedLanes.filter(l => l.isStillActive);
+    const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
+
+    // Return stats
+    return {
+        activeCount: activeLanes.length,
+        openCount: openLanes.length, // Total 'Open' events
+        closeCount: closedLanes.length, // Total 'Close' events
+        activeLanes: activeLanes,
+        allEnhancedLanes: enhancedLanes, // For Table Display
+        closedActiveLanes: closedActiveLanes
+    };
 };
