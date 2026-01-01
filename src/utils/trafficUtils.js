@@ -134,10 +134,11 @@ function getThresholds(roadId, isRushHour, isWeekend) {
 }
 
 // Main Traffic Analysis Function
-export const getTrafficFromCoords = async (start, end, roadId = null) => {
+export const getTrafficFromCoords = async (start, end, roadId = null, apiKey = '') => {
   const [slat, slon] = start.split(',');
   const [elat, elon] = end.split(',');
-  const url = `/api/traffic?slat=${slat}&slon=${slon}&elat=${elat}&elon=${elon}`;
+  // Use the Proxy path defined in vite.config.js
+  const url = `/api/longdo/RouteService/json/route/guide?flat=${slat}&flon=${slon}&tlat=${elat}&tlon=${elon}&mode=d&key=${apiKey}`;
 
   try {
     const res = await fetch(url);

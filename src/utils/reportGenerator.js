@@ -3,7 +3,7 @@ import { TRAFFIC_DATA } from '../constants/traffic_nodes';
 import { getThaiDateStr } from './helpers';
 import { analyzeTrafficText, getTrafficFromCoords } from './trafficUtils';
 
-export const generateTrafficReport = async (rawData, direction) => {
+export const generateTrafficReport = async (rawData, direction, apiKey) => {
     const now = new Date();
     const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
@@ -60,7 +60,7 @@ export const generateTrafficReport = async (rawData, direction) => {
                     let start = seg.start;
                     let end = seg.end;
                     if (direction === 'inbound') { start = seg.end; end = seg.start; }
-                    const result = await getTrafficFromCoords(start, end, road.id);
+                    const result = await getTrafficFromCoords(start, end, road.id, apiKey);
                     return { label: seg.label, ...result };
                 });
 

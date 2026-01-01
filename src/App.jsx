@@ -120,8 +120,8 @@ export default function App() {
 
       // Prepare Summary Reports (Both Inbound and Outbound) - Always update to keep in sync
       Promise.all([
-        generateTrafficReport(allData, 'outbound'),
-        generateTrafficReport(allData, 'inbound')
+        generateTrafficReport(allData, 'outbound', LONGDO_API_KEY),
+        generateTrafficReport(allData, 'inbound', LONGDO_API_KEY)
       ]).then(([outboundReport, inboundReport]) => {
         setSummaryReports({
           outbound: outboundReport,
@@ -418,7 +418,7 @@ export default function App() {
     }
 
     try {
-      const result = await generateTrafficReport(rawData, reportDirection);
+      const result = await generateTrafficReport(rawData, reportDirection, LONGDO_API_KEY);
       // New format returns { text, metadata, direction, timestamp }
       setGeneratedReportText(result.text);
       setReportMetadata(result.metadata);
