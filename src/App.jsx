@@ -68,7 +68,7 @@ export default function App() {
   const [copyProblemSuccess, setCopyProblemSuccess] = useState(false);
 
   // Summary Overlay State
-  const [summaryText, setSummaryText] = useState("");
+  const [summaryReports, setSummaryReports] = useState({ inbound: "", outbound: "" });
   const [summaryCopySuccess, setSummaryCopySuccess] = useState(false);
 
   // Controls
@@ -132,11 +132,16 @@ export default function App() {
       setRawData(allData);
       setLastUpdated(new Date());
 
-      // Prepare Summary Report (Outbound by default?)
-      // User didn't specify, but "current situation overview" implies generally Outbound for holidays or current context?
-      // Let's generate Outbound by default for the summary.
-      const summaryReport = await generateTrafficReport(allData, 'outbound');
-      setSummaryText(summaryReport.text);
+      // Prepare Summary Reports (Both Inbound and Outbound)
+      const [outboundReport, inboundReport] = await Promise.all([
+        generateTrafficReport(allData, 'outbound'),
+        generateTrafficReport(allData, 'inbound')
+      ]);
+
+      setSummaryReports({
+        outbound: outboundReport.text,
+        inbound: inboundReport.text
+      });
 
       // Enforce Minimum Loading Time (e.g., 3 seconds for effect)
       const elapsed = Date.now() - startTime;
@@ -164,13 +169,13 @@ export default function App() {
   };
 
   // Handle Summary Actions
-  const handleSummaryCopy = () => {
+  const handleSummaryCopy = (textToCopy) => {
     if (navigator.clipboard) {
-      navigator.clipboard.writeText(summaryText).then(() => setSummaryCopySuccess(true));
+      navigator.clipboard.writeText(textToCopy).then(() => setSummaryCopySuccess(true));
     } else {
       // Fallback
       var textArea = document.createElement("textarea");
-      textArea.value = summaryText;
+      textArea.value = textToCopy;
       document.body.appendChild(textArea);
       textArea.select();
       try { document.execCommand('copy'); setSummaryCopySuccess(true); }
@@ -505,7 +510,7 @@ export default function App() {
       {/* Summary Overlay (Modal) */}
       {appState === 'summary' && (
         <SummaryOverlay
-          reportText={summaryText}
+          summaryReports={summaryReports}
           onCopy={handleSummaryCopy}
           onEnter={handleEnterDashboard}
           copySuccess={summaryCopySuccess}
