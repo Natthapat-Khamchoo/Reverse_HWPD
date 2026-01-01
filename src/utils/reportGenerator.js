@@ -25,6 +25,7 @@ export const generateTrafficReport = async (rawData, direction) => {
             const relevantReports = rawData.filter(d =>
                 d.road === road.id &&
                 d.date === todayFilterStr &&
+                (d.dir === '-' || d.dir.includes(direction === 'outbound' ? 'ขาออก' : 'ขาเข้า')) &&
                 (d.category === 'จราจรติดขัด' || d.category === 'สภาพจราจร' || d.category === 'ช่องทางพิเศษ' || d.detail.includes('จราจร') || d.detail.includes('รถ'))
             );
             relevantReports.sort((a, b) => b.timestamp - a.timestamp);
