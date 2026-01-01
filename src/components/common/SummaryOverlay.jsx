@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { ClipboardCopy, ArrowRightCircle, Terminal, MapPin } from 'lucide-react';
 
 export default function SummaryOverlay({ summaryReports, onCopy, onEnter, copySuccess }) {
-    // summaryReports is { inbound: "...", outbound: "..." }
+    // summaryReports is { inbound: { text, ... }, outbound: { text, ... } }
     const [activeTab, setActiveTab] = useState('outbound'); // 'outbound' | 'inbound'
 
-    const currentText = activeTab === 'outbound' ? summaryReports.outbound : summaryReports.inbound;
+    const reportObj = activeTab === 'outbound' ? summaryReports.outbound : summaryReports.inbound;
+    const currentText = reportObj ? (reportObj.text || reportObj) : "";
 
     return (
         <div className="fixed inset-0 z-[9000] bg-slate-950/90 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in-delayed">

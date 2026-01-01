@@ -97,28 +97,13 @@ export default function App() {
 
   // 🔄 Fetch Data
   const fetchData = useCallback(async (isBackground = false) => {
-    // If background refresh, just fetch and update
-    if (isBackground) {
-      try {
-        const timestamp = new Date().getTime();
-        const [resTraffic, resEnforce, resSafety] = await Promise.all([
-          fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
-          fetch(`${SHEET_ENFORCE_URL}&t=${timestamp}`).then(r => r.text()),
-          fetch(`${SHEET_SAFETY_URL}&t=${timestamp}`).then(r => r.text())
-        ]);
-        const dataTraffic = processSheetData(parseCSV(resTraffic), 'TRAFFIC');
-        const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
-        const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
-        setRawData([...dataTraffic, ...dataEnforce, ...dataSafety]);
-        setLastUpdated(new Date());
-      } catch (err) { console.error(err); }
-      return;
+    let startTime = 0;
+    if (!isBackground) {
+      startTime = Date.now();
+      setError(false);
     }
 
-    // Initial Load
-    setError(false);
     try {
-      const startTime = Date.now();
       const timestamp = new Date().getTime();
       const [resTraffic, resEnforce, resSafety] = await Promise.all([
         fetch(`${SHEET_TRAFFIC_URL}&t=${timestamp}`).then(r => r.text()),
@@ -129,32 +114,36 @@ export default function App() {
       const dataEnforce = processSheetData(parseCSV(resEnforce), 'ENFORCE');
       const dataSafety = processSheetData(parseCSV(resSafety), 'SAFETY');
       const allData = [...dataTraffic, ...dataEnforce, ...dataSafety];
+
       setRawData(allData);
       setLastUpdated(new Date());
 
-      // Prepare Summary Reports (Both Inbound and Outbound)
-      const [outboundReport, inboundReport] = await Promise.all([
+      // Prepare Summary Reports (Both Inbound and Outbound) - Always update to keep in sync
+      Promise.all([
         generateTrafficReport(allData, 'outbound'),
         generateTrafficReport(allData, 'inbound')
-      ]);
-
-      setSummaryReports({
-        outbound: outboundReport.text,
-        inbound: inboundReport.text
+      ]).then(([outboundReport, inboundReport]) => {
+        setSummaryReports({
+          outbound: outboundReport,
+          inbound: inboundReport
+        });
       });
 
-      // Enforce Minimum Loading Time (e.g., 3 seconds for effect)
-      const elapsed = Date.now() - startTime;
-      const remaining = Math.max(0, 3000 - elapsed);
-
-      setTimeout(() => {
-        setAppState('exiting_loading'); // Trigger Exit Animation
-      }, remaining);
+      if (!isBackground) {
+        // Enforce Minimum Loading Time
+        const elapsed = Date.now() - startTime;
+        const remaining = Math.max(0, 3000 - elapsed);
+        setTimeout(() => {
+          setAppState('exiting_loading');
+        }, remaining);
+      }
 
     } catch (err) {
       console.error(err);
-      setError(true);
-      setAppState('error');
+      if (!isBackground) {
+        setError(true);
+        setAppState('error');
+      }
     }
   }, []);
 
@@ -430,6 +419,17 @@ export default function App() {
   const handleGenerateReport = async () => {
     setIsGeneratingReport(true);
     setCopySuccess(false);
+
+    // TRY TO USE CACHED REPORT FIRST
+    const cached = summaryReports[reportDirection];
+    if (cached && cached.text) {
+      setGeneratedReportText(cached.text);
+      setReportMetadata(cached.metadata);
+      setShowReportModal(true);
+      setIsGeneratingReport(false);
+      return;
+    }
+
     try {
       const result = await generateTrafficReport(rawData, reportDirection);
       // New format returns { text, metadata, direction, timestamp }
