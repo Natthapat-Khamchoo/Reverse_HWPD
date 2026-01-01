@@ -9,7 +9,10 @@ export default defineConfig({
       '/api/longdo': {
         target: 'https://api.longdo.com',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/longdo/, '')
+        rewrite: (path) => path.replace(/^\/api\/longdo/, ''),
+        headers: {
+          'Referer': 'https://reverse-hwpd.vercel.app/'
+        }
       }
     }
   }
