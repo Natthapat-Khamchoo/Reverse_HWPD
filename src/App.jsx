@@ -122,7 +122,7 @@ export default function App() {
       const simpleSummary = generateStartupSummary(allData);
       setSummaryReports({
         outbound: { text: simpleSummary, metadata: [], direction: 'outbound' },
-        inbound: { text: "ดูรายละเอียดเพิ่มเติมใน Dashboard", metadata: [], direction: 'inbound' }
+        inbound: { text: simpleSummary, metadata: [], direction: 'inbound' }
       });
 
       if (!isBackground) {

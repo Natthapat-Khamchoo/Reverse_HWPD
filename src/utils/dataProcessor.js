@@ -204,40 +204,49 @@ export const calculateSpecialLaneStats = (logData) => {
     const openLanes = logData.filter(item => item.category === 'ช่องทางพิเศษ');
     const closedLanes = logData.filter(item => item.category === 'ปิดช่องทางพิเศษ');
 
-    // 2. Map Open events to Closing events using Enhanced Logic
-    // Logic matches LogTablesSection.jsx exactly:
-    // - Loose key matching (Div + St) for PAIRING (Open/Close detection)
-    // - Close must be AFTER Open
-    // - Close must be within 8 hours
-    const enhancedLanes = openLanes.map(openLane => {
+    // 2. Sort by time to ensure chronological processing
+    openLanes.sort((a, b) => a.timestamp - b.timestamp);
+    closedLanes.sort((a, b) => a.timestamp - b.timestamp);
+
+    // Track used close events (Set of Strings: `${div}-${st}-${timestamp}`)
+    const usedCloseEvents = new Set();
+
+    const enhancedLanes = openLanes.map((openLane, idx) => {
         const pairingKey = `${openLane.div}-${openLane.st}`;
 
-        // Find closest close event
-        const matchingCloses = closedLanes.filter(closeLane => {
+        // Find potential close candidates
+        const potentialCloses = closedLanes.filter(closeLane => {
+            // Unique ID for this specific close event instance
+            const closeId = `${closeLane.div}-${closeLane.st}-${closeLane.timestamp}-${closeLane.detail}`;
+
+            if (usedCloseEvents.has(closeId)) return false;
+
             const closeKey = `${closeLane.div}-${closeLane.st}`;
             const sameUnit = closeKey === pairingKey;
             const afterOpen = closeLane.timestamp > openLane.timestamp;
             const within8Hours = (closeLane.timestamp - openLane.timestamp) < (8 * 60 * 60 * 1000);
+
             return sameUnit && afterOpen && within8Hours;
         });
 
-        const closestClose = matchingCloses.length > 0
-            ? matchingCloses.reduce((closest, current) =>
-                current.timestamp < closest.timestamp ? current : closest
-            )
-            : null;
+        // Best Match Strategy:
+        // 1. Try to match by KM/Road in detail text? (Advanced)
+        // 2. Else, pick the closest time (First one since we sorted)
+
+        // For now, simple First Available Match (FIFO)
+        const closestClose = potentialCloses.length > 0 ? potentialCloses[0] : null;
+
+        if (closestClose) {
+            const closeId = `${closestClose.div}-${closestClose.st}-${closestClose.timestamp}-${closestClose.detail}`;
+            usedCloseEvents.add(closeId);
+        }
 
         const isStillActive = !closestClose;
-
-        // Calculate Duration
         const durationMinutes = closestClose
             ? (closestClose.timestamp - openLane.timestamp) / 1000 / 60
             : null;
 
         const isOpenTooLong = durationMinutes && durationMinutes > 240;
-
-        // Granular Location Key for Usage Stats Grouping
-        // This fixes the bug where different locations from the same unit were grouped together
         const locationKey = `${openLane.div}-${openLane.st}-${openLane.road}-${openLane.km}-${openLane.dir}`;
 
         return {
@@ -247,7 +256,8 @@ export const calculateSpecialLaneStats = (logData) => {
             closeInfo: closestClose ? {
                 time: closestClose.time,
                 date: closestClose.date,
-                timestamp: closestClose.timestamp
+                timestamp: closestClose.timestamp,
+                detail: closestClose.detail
             } : null,
             duration: durationMinutes,
             durationText: formatDuration(durationMinutes),
@@ -259,13 +269,12 @@ export const calculateSpecialLaneStats = (logData) => {
     const activeLanes = enhancedLanes.filter(l => l.isStillActive);
     const closedActiveLanes = enhancedLanes.filter(l => !l.isStillActive);
 
-    // Return stats
     return {
         activeCount: activeLanes.length,
-        openCount: openLanes.length, // Total 'Open' events
-        closeCount: closedLanes.length, // Total 'Close' events
+        openCount: openLanes.length,
+        closeCount: closedLanes.length,
         activeLanes: activeLanes,
-        allEnhancedLanes: enhancedLanes, // For Table Display
+        allEnhancedLanes: enhancedLanes,
         closedActiveLanes: closedActiveLanes
     };
 };
