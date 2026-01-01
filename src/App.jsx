@@ -246,39 +246,33 @@ export default function App() {
 
   // 4. Map Data
   const mapData = useMemo(() => {
-    // Sort logData by timestamp to process events chronologically
-    const sortedData = [...logData].sort((a, b) => a.timestamp - b.timestamp);
+    // ใช้ Logic เดียวกับ KPI Card (calculateSpecialLaneStats) เพื่อให้จำนวนหมุดตรงกัน
+    const specialLaneStats = calculateSpecialLaneStats(specialLaneLogData);
+    const activeSpecialLanes = specialLaneStats.activeLanes.map(l => ({ ...l, pinType: 'lane', status: 'open' }));
 
-    const activeStates = new Map();
     const otherEvents = [];
 
-    sortedData.forEach(row => {
+    // Process other events (Accidents, Traffic Jams, Etc.)
+    visualData.forEach(row => {
       if (!row.lat || !row.lng) return;
 
-      const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-      const laneKey = `LANE-${locKey}`;
-
-      // Handle special lanes with state tracking
-      if (row.category === 'ช่องทางพิเศษ') {
-        activeStates.set(laneKey, { ...row, pinType: 'lane', status: 'open', category: 'ช่องทางพิเศษ' });
-      } else if (row.category === 'ปิดช่องทางพิเศษ') {
-        activeStates.delete(laneKey);
-      }
+      // Skip Special Lanes here as we handled them via calculateSpecialLaneStats
+      if (row.category === 'ช่องทางพิเศษ' || row.category === 'ปิดช่องทางพิเศษ') return;
 
       // Handle accidents (only kkk.8)
       if (row.category === 'อุบัติเหตุ' && row.div === '8') {
         otherEvents.push({ ...row, pinType: 'event' });
       }
 
-      // Handle drunk driving arrests
+      // Handle drunk driving arrests - Fix logic to match stats
       const content = `${row.category || ''} ${row.detail || ''}`.toLowerCase();
       if (content.includes('เมา') && (content.includes('จับกุม') || row.reportFormat === 'ENFORCE')) {
         otherEvents.push({ ...row, pinType: 'drunk', category: 'จับกุมเมาแล้วขับ' });
       }
     });
 
-    return [...otherEvents, ...activeStates.values()];
-  }, [logData]);
+    return [...activeSpecialLanes, ...otherEvents];
+  }, [logData, visualData, specialLaneLogData]);
 
   // 📊 STATS
   const stats = useMemo(() => {
@@ -403,15 +397,8 @@ export default function App() {
     setIsGeneratingReport(true);
     setCopySuccess(false);
 
-    // TRY TO USE CACHED REPORT FIRST
-    const cached = summaryReports[reportDirection];
-    if (cached && cached.text) {
-      setGeneratedReportText(cached.text);
-      setReportMetadata(cached.metadata);
-      setShowReportModal(true);
-      setIsGeneratingReport(false);
-      return;
-    }
+    // FIX: Always generate fresh report on button click (Do not use cache)
+    // This ensures user gets the full report, not the startup summary.
 
     try {
       const result = await generateTrafficReport(rawData, reportDirection, LONGDO_API_KEY);
