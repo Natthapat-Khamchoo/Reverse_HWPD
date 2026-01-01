@@ -188,7 +188,8 @@ export const getTrafficFromCoords = async (start, end, roadId = null, apiKey = '
     }
   } catch (err) {
     console.warn("Traffic API Warning:", err.message);
+    return { status: `Error: ${err.message}`, code: 0, source: "error" };
   }
 
-  return { status: "ตรวจสอบไม่ได้/ปิดถนน", code: 0, source: "error" };
+  return { status: "ตรวจสอบไม่ได้ (No Data)", code: 0, source: "error" };
 };

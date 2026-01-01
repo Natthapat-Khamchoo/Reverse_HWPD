@@ -87,7 +87,10 @@ export const generateTrafficReport = async (rawData, direction, apiKey) => {
                         finalStatus = `${analysis.emoji} ${latestReport.detail} (ข้อมูลเดิม ${latestReport.time} น.)`;
                         predictedStatus = analysis.status;
                     } else {
-                        finalStatus = "⚫ อยู่ระหว่างตรวจสอบ";
+                        // Check if specific error exists in results
+                        const firstError = results.find(r => r.code === 0 && r.status.includes('Error'));
+                        const errorMsg = firstError ? firstError.status : "อยู่ระหว่างตรวจสอบ";
+                        finalStatus = `⚫ ${errorMsg}`;
                         predictedStatus = "ตรวจสอบไม่ได้";
                     }
                 } else {
