@@ -75,9 +75,8 @@ export const processSheetData = (rawData, sourceFormat) => {
         const unitRaw = getVal(['หน่วยงาน', 'unit']);
 
         // Logic จับ Division: รองรับ pattern หลากหลายมากขึ้น
-        // ตัวอย่าง: "กก.8", "ทล.1 กก.2", "สถานีฯ 2 กก.1", "1/2"
-
-        const divMatch = unitRaw.match(/กก\.?(\d+)/) || unitRaw.match(/sub-?division\s*(\d+)/i) || unitRaw.match(/\/(\d+)/);
+        // ตัวอย่าง: "กก.8", "ทล.1 กก.2", "สถานีฯ 2 กก.1", "1/2", "คก.6"
+        const divMatch = unitRaw.match(/(?:กก|คก)\.?(\d+)/) || unitRaw.match(/sub-?division\s*(\d+)/i) || unitRaw.match(/\/(\d+)/);
         if (divMatch) div = divMatch[1];
         else {
             // Fallback for simple number at end
@@ -122,6 +121,14 @@ export const processSheetData = (rawData, sourceFormat) => {
                 const destMatch = locRaw.match(/มุ่งหน้า\s*([^\s]+)/);
                 if (destMatch) dir = `มุ่งหน้า${destMatch[1]}`;
             }
+        }
+
+        // Logic Logic: Force Road ID based on Division 8 (Motorways) if known
+        if (div === '8') {
+            if (st === '1') road = '7';         // Motorway 7
+            else if (st === '2') road = '9';    // Motorway 9
+            else if (st === '3') road = 'M6';   // Motorway 6
+            else if (st === '4') road = 'M81';  // Motorway 81
         }
 
         // RELAXED FILTERING: Don't drop immediately if road/km missing, unless locRaw is also missing
@@ -172,7 +179,7 @@ export const processSheetData = (rawData, sourceFormat) => {
                 mainCategory = 'ช่องทางพิเศษ';
                 detailText = specialLane;
                 statusColor = 'bg-green-500';
-            } else if (specialLane && (specialLane.startsWith('ปิด') || specialLane.includes('ยกเลิก'))) {
+            } else if (specialLane && (/(?:^|[^เ])ปิด/.test(specialLane) || specialLane.includes('ยกเลิก'))) {
                 mainCategory = 'ปิดช่องทางพิเศษ';
                 detailText = specialLane;
                 statusColor = 'bg-slate-500';
@@ -208,38 +215,35 @@ export const calculateSpecialLaneStats = (logData) => {
     openLanes.sort((a, b) => a.timestamp - b.timestamp);
     closedLanes.sort((a, b) => a.timestamp - b.timestamp);
 
-    // Track used close events (Set of Strings: `${div}-${st}-${timestamp}`)
-    const usedCloseEvents = new Set();
+    // Note: We used to track usedCloseEvents to prevent one close event from closing multiple opens.
+    // However, in practice, a single "Close" report might apply to multiple "Open" entries 
+    // (e.g., redundant reports or updates). So we now allow reuse to ensure nothing remains falsely "Active".
 
     const enhancedLanes = openLanes.map((openLane, idx) => {
         const pairingKey = `${openLane.div}-${openLane.st}`;
 
         // Find potential close candidates
         const potentialCloses = closedLanes.filter(closeLane => {
-            // Unique ID for this specific close event instance
-            const closeId = `${closeLane.div}-${closeLane.st}-${closeLane.timestamp}-${closeLane.detail}`;
-
-            if (usedCloseEvents.has(closeId)) return false;
-
             const closeKey = `${closeLane.div}-${closeLane.st}`;
-            const sameUnit = closeKey === pairingKey;
-            const afterOpen = closeLane.timestamp > openLane.timestamp;
-            const within8Hours = (closeLane.timestamp - openLane.timestamp) < (8 * 60 * 60 * 1000);
+            const isSameUnit = closeKey === pairingKey;
 
-            return sameUnit && afterOpen && within8Hours;
+            // Relaxed Match 1: If Unit doesn't match, check if Road is same and Division is same
+            const isSameRoadAndDiv = (openLane.road !== 'ไม่ระบุ' && openLane.road === closeLane.road) && (openLane.div === closeLane.div);
+
+            // Relaxed Match 2: If Division doesn't match, check if Road AND KM are same (Strong signal)
+            const isSameRoadAndKM = (openLane.road !== 'ไม่ระบุ' && openLane.road === closeLane.road) &&
+                (openLane.km !== '-' && openLane.km === closeLane.km);
+
+            const isMatch = isSameUnit || isSameRoadAndDiv || isSameRoadAndKM;
+
+            const afterOpen = closeLane.timestamp > openLane.timestamp;
+            const within12Hours = (closeLane.timestamp - openLane.timestamp) < (12 * 60 * 60 * 1000); // Relax to 12h
+
+            return isMatch && afterOpen && within12Hours;
         });
 
-        // Best Match Strategy:
-        // 1. Try to match by KM/Road in detail text? (Advanced)
-        // 2. Else, pick the closest time (First one since we sorted)
-
-        // For now, simple First Available Match (FIFO)
+        // Best Match Strategy: Pick the closest time (First one since we sorted)
         const closestClose = potentialCloses.length > 0 ? potentialCloses[0] : null;
-
-        if (closestClose) {
-            const closeId = `${closestClose.div}-${closestClose.st}-${closestClose.timestamp}-${closestClose.detail}`;
-            usedCloseEvents.add(closeId);
-        }
 
         const isStillActive = !closestClose;
         const durationMinutes = closestClose

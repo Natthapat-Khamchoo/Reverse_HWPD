@@ -32,7 +32,21 @@ export const formatBlock = (item, type = 'general') => {
 
     const roadInfo = `ทล.${item.road} กม.${item.km}`;
     const dirInfo = item.dir !== '-' ? `(${item.dir})` : '';
-    const detailTxt = item.detail || '-';
+    let detailTxt = item.detail || '-';
+
+    // Enhanced Detail for Special Lanes
+    if (type === 'activeLane' && item.isEnhanced) {
+        if (!item.isStillActive && item.closeInfo) {
+            headerEmoji = '🔴';
+            headerTitle = `ช่องทางพิเศษ (ปิดแล้ว)`;
+            detailTxt = `${detailTxt}\n⏱️ เปิดเมื่อเวลา: ${item.time} น. ปิดเวลา: ${item.closeInfo.time} น. (${item.durationText || '-'})`;
+        } else {
+            headerEmoji = '🟢';
+            headerTitle = `ช่องทางพิเศษ (เปิดอยู่)`;
+            detailTxt = `${detailTxt}\n⏱️ เปิดเมื่อเวลา: ${item.time} น. (ยังเปิดใช้งานอยู่)`;
+        }
+    }
+
     const orgInfo = `กก.${item.div} ส.ทล.${item.st}`;
     const timeInfo = `${item.time} น.`;
 
@@ -48,43 +62,49 @@ export const formatBlock = (item, type = 'general') => {
             date: item.date, // Add date for filtering
             div: item.div,   // Add div for filtering
             st: item.st,     // Add st for filtering
+            road: item.road, // Add road for grouping
             loc: roadInfo,
-            rawText: `${roadInfo} ${detailTxt} ${headerTitle}`.toLowerCase() // Add raw text for search
+            rawText: `${roadInfo} ${detailTxt} ${headerTitle}`.toLowerCase(), // Add raw text for search
+            isOpen: (type === 'activeLane' && item.isEnhanced && !item.closeInfo) // Flag for styling
         }
     };
 };
 
-export const generateProblemReport = (rawData, todayOnly = true) => {
+export const generateProblemReport = (rawData, specialLaneStats = null) => {
     // 1. Filter Data
     const now = new Date();
     const todayStr = getThaiDateStr(now);
 
-    let filtered = rawData;
-    if (todayOnly) {
-        filtered = filtered.filter(item => item.date === todayStr);
-    }
-
+    let filtered = rawData.filter(item => item.date === todayStr);
     filtered.sort((a, b) => b.timestamp - a.timestamp);
 
     const jams = [];
     const accidents = [];
-    const activeLanes = [];
+    let activeLanes = [];
 
-    // Lane Logic (Same as before)
-    const laneState = new Map();
-    const timeSorted = [...filtered].sort((a, b) => a.timestamp - b.timestamp);
+    // Lane Logic: Use provided stats OR fallback to basic logic
+    if (specialLaneStats && specialLaneStats.allEnhancedLanes) {
+        // Use the Enhanced List (Contains both Open and Closed sessions)
+        // Mark them as isEnhanced for the formatter
+        activeLanes = specialLaneStats.allEnhancedLanes.map(l => ({ ...l, isEnhanced: true }));
+        // Sort by time descending
+        activeLanes.sort((a, b) => b.timestamp - a.timestamp);
+    } else {
+        // Fallback (Internal Logic - Only Active)
+        const laneState = new Map();
+        const timeSorted = [...filtered].sort((a, b) => a.timestamp - b.timestamp);
 
-    timeSorted.forEach(row => {
-        if (row.category === 'ช่องทางพิเศษ') {
-            const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-            laneState.set(locKey, row);
-        } else if (row.category === 'ปิดช่องทางพิเศษ') {
-            const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
-            laneState.delete(locKey);
-        }
-    });
-
-    activeLanes.push(...Array.from(laneState.values()).sort((a, b) => b.timestamp - a.timestamp));
+        timeSorted.forEach(row => {
+            if (row.category === 'ช่องทางพิเศษ') {
+                const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+                laneState.set(locKey, row);
+            } else if (row.category === 'ปิดช่องทางพิเศษ') {
+                const locKey = `${row.div}-${row.st}-${row.road}-${row.dir}`;
+                laneState.delete(locKey);
+            }
+        });
+        activeLanes.push(...Array.from(laneState.values()).sort((a, b) => b.timestamp - a.timestamp));
+    }
 
     filtered.forEach(item => {
         if (item.category === 'จราจรติดขัด') jams.push(item);
@@ -121,6 +141,11 @@ export const generateProblemReport = (rawData, todayOnly = true) => {
 
     return {
         text: reportText,
+        data: {
+            accidents: accidents.map(i => formatBlock(i, 'accident')),
+            jams: jams.map(i => formatBlock(i, 'jam')),
+            activeLanes: activeLanes.map(i => formatBlock(i, 'activeLane'))
+        },
         metadata: {
             congestionCount: jams.length,
             accidentCount: accidents.length,

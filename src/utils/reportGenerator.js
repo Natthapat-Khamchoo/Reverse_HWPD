@@ -23,7 +23,7 @@ export const generateTrafficReport = async (rawData, direction, apiKey) => {
 
             // 1. Get Latest Officer Report
             const relevantReports = rawData.filter(d =>
-                d.road === road.id &&
+                (d.road === road.id || (road.id === '9-E' && d.road === '9')) &&
                 d.date === todayFilterStr &&
                 (d.dir === '-' || d.dir.includes(direction === 'outbound' ? 'ขาออก' : 'ขาเข้า')) &&
                 (d.category === 'จราจรติดขัด' || d.category === 'สภาพจราจร' || d.category === 'ช่องทางพิเศษ' || d.detail.includes('จราจร') || d.detail.includes('รถ'))

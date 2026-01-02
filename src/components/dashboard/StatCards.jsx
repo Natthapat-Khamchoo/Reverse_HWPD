@@ -1,18 +1,38 @@
 import React, { useState } from 'react';
 import { Truck, AlertTriangle, Activity, Cone, Info } from 'lucide-react';
-import CardDetailModal from './CardDetailModal'; // Ensure this matches filename
+import CardDetailModal from './CardDetailModal';
+import RouteStatsModal from './RouteStatsModal'; // Import new modal
 import CountUp from '../common/CountUp';
 
 export default function StatCards({ stats }) {
+  // Detail Modal State
   const [showModal, setShowModal] = useState(false);
   const [modalTitle, setModalTitle] = useState('');
   const [modalItems, setModalItems] = useState([]);
+  const [modalOptions, setModalOptions] = useState({});
+
+  // Stats Modal State
+  const [showStatsModal, setShowStatsModal] = useState(false);
+  const [statsTitle, setStatsTitle] = useState('');
+  const [statsItems, setStatsItems] = useState([]);
 
   // Helper to open modal
-  const openDetails = (title, items) => {
+  const openDetails = (title, items, options = {}) => {
     setModalTitle(title);
     setModalItems(items || []);
+    setModalOptions(options);
     setShowModal(true);
+  };
+
+  // Switch to Stats View
+  const handleShowStats = () => {
+    setStatsTitle(modalTitle);
+    setStatsItems(modalItems);
+    setShowStatsModal(true);
+    // Optional: Close detail modal if we want to switch completely, 
+    // or keep it open if we want stacking. User said "instead", so maybe strictly one view?
+    // "Instead of showing on same screen" -> could implies separate screen.
+    // Let's keep detail modal logic independent.
   };
 
   const cards = [
@@ -48,7 +68,7 @@ export default function StatCards({ stats }) {
       textColor: 'text-red-300',
       glow: 'shadow-red-500/20',
       delay: '100ms',
-      onClick: () => openDetails('รายชื่ออุบัติเหตุ', stats?.details?.accidents?.all)
+      onClick: () => openDetails('รายชื่ออุบัติเหตุ', stats?.details?.accidents?.all, { enableRegionSplit: true })
     },
     {
       title: 'ช่องทางพิเศษ',
@@ -140,13 +160,23 @@ export default function StatCards({ stats }) {
         })}
       </div>
 
-      {/* Detail Modal */}
+      {/* Detail Modal (List View) */}
       <CardDetailModal
         show={showModal}
         onClose={() => setShowModal(false)}
         title={modalTitle}
         items={modalItems}
+        options={modalOptions}
         onCopy={(text) => navigator.clipboard.writeText(text)}
+        onShowStats={handleShowStats} // Pass the handler
+      />
+
+      {/* Stats Modal (Grouped View) - Renders on top or instead */}
+      <RouteStatsModal
+        show={showStatsModal}
+        onClose={() => setShowStatsModal(false)}
+        title={statsTitle}
+        items={statsItems}
       />
     </>
   );

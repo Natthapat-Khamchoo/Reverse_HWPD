@@ -64,6 +64,7 @@ export default function App() {
   // Problem Report State
   const [showProblemReportModal, setShowProblemReportModal] = useState(false);
   const [problemReportText, setProblemReportText] = useState("");
+  const [problemReportData, setProblemReportData] = useState(null);
   const [problemReportMetadata, setProblemReportMetadata] = useState(null);
   const [copyProblemSuccess, setCopyProblemSuccess] = useState(false);
 
@@ -431,8 +432,15 @@ export default function App() {
 
   const handleGenerateProblemReport = () => {
     setCopyProblemSuccess(false);
-    const result = generateProblemReport(rawData);
+
+    // Calculate Full Special Lane History for the report
+    const specialLaneStats = calculateSpecialLaneStats(logData);
+
+    // Pass stats to generator
+    const result = generateProblemReport(rawData, specialLaneStats);
+
     setProblemReportText(result.text);
+    setProblemReportData(result.data);
     setProblemReportMetadata(result.metadata);
     setShowProblemReportModal(true);
   };
@@ -497,7 +505,15 @@ export default function App() {
       {/* Content Container (z-10 to stay above bg) */}
       <div className="relative z-10 p-4 md:p-6 max-w-[1600px] mx-auto">
         <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} stats={stats} />
-        <ProblemReportModal show={showProblemReportModal} onClose={() => setShowProblemReportModal(false)} reportText={problemReportText} reportMetadata={problemReportMetadata} onCopy={handleCopyProblemText} copySuccess={copyProblemSuccess} />
+        <ProblemReportModal
+          show={showProblemReportModal}
+          onClose={() => setShowProblemReportModal(false)}
+          reportText={problemReportText}
+          reportData={problemReportData}
+          reportMetadata={problemReportMetadata}
+          onCopy={handleCopyProblemText}
+          copySuccess={copyProblemSuccess}
+        />
 
         {/* Holiday Alert Banner */}
         {isHolidayPeriod() && (
