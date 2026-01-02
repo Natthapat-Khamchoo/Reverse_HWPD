@@ -192,12 +192,27 @@ export const processSheetData = (rawData, sourceFormat) => {
             }
         }
 
+        // 5. Special Extraction for Enforcement (Drunk Driving Count)
+        let drunkDriverCount = 0;
+        if (sourceFormat === 'ENFORCE') {
+            const amountRaw = getVal(['จำนวนเมา', 'จำนวน', 'amount', 'ราย']);
+            if (amountRaw) {
+                const amtMatch = amountRaw.match(/(\d+)/);
+                if (amtMatch) drunkDriverCount = parseInt(amtMatch[1], 10);
+                // Debug Mismatch
+                console.log(`🍺 Drunk Check:`, { raw: amountRaw, extracted: drunkDriverCount, unit: unitRaw, detail: detailText });
+            } else {
+                console.log(`🍺 Drunk Check (No Amount):`, { raw: amountRaw, detail: detailText });
+            }
+        }
+
         return {
             id: `${sourceFormat}-${index}`,
             date: dateStr, time: timeStr, div: div, st: st,
             category: mainCategory, detail: detailText,
             road: road || 'ไม่ระบุ', km: km || '-', dir: dir || '-',
             lat: lat, lng: lng, colorClass: statusColor, reportFormat: sourceFormat,
+            drunkDriverCount: drunkDriverCount,
             timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
         };
     });

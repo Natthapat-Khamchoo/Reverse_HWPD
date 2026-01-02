@@ -277,14 +277,22 @@ export default function App() {
 
   // 📊 STATS
   const stats = useMemo(() => {
-    const drunkCount = rawData.filter(item => {
+    // Drunk Driving Stats
+    const drunkItems = rawData.filter(item => {
       let passDate = true;
       if (filterStartDate && filterEndDate) passDate = item.date >= filterStartDate && item.date <= filterEndDate;
+
+      // 1. Priority: Explicit count from column "Amount Drunk"
+      if (item.drunkDriverCount > 0) return passDate;
+
+      // 2. Fallback: Check text matching
       const allText = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
       const isEnforceContext = allText.includes('จับกุม') || item.reportFormat === 'ENFORCE';
       const isDrunk = allText.includes('เมา');
       return passDate && isEnforceContext && isDrunk;
-    }).length;
+    });
+
+    const drunkCount = drunkItems.reduce((sum, item) => sum + (item.drunkDriverCount || 1), 0);
 
     // Calculate active lanes using state-based logic on filtered data
     const specialLaneStats = calculateSpecialLaneStats(logData);
@@ -306,11 +314,7 @@ export default function App() {
 
     // --- Detailed Lists for Click Modals ---
     // Drunk
-    const drunkList = rawData.filter(item => {
-      if (filterStartDate && filterEndDate) if (item.date < filterStartDate || item.date > filterEndDate) return false;
-      const txt = `${item.category} ${item.detail} ${item.reportFormat}`.toLowerCase();
-      return (txt.includes('จับกุม') || item.reportFormat === 'ENFORCE') && txt.includes('เมา');
-    }).map(item => formatBlock(item));
+    const drunkList = drunkItems.map(item => formatBlock(item));
 
     // Accidents (Split 8 vs Others)
     const accList8 = accidentData.filter(d => d.div === '8').map(item => formatBlock(item, 'accident'));
