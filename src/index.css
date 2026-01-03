@@ -458,3 +458,69 @@ a:active {
 .animate-police-pulse {
   animation: police-pulse 3s ease-in-out infinite;
 }
+
+/* --- Longdo Map Custom Popup (Glassmorphism) --- */
+.custom-popup-longdo {
+  font-family: 'Inter', sans-serif;
+  background: rgba(15, 23, 42, 0.95);
+  /* Slate 900 with opacity */
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+  min-width: 240px;
+  max-width: 300px;
+  transform: translateY(-10px);
+  /* Lift slightly above marker */
+}
+
+/* Remove default Longdo popup styles if possible, or override inner elements */
+.ldmap_popup_container {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ldmap_popup_content {
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.ldmap_popup_close {
+  background: rgba(255, 255, 255, 0.1) !important;
+  border-radius: 50%;
+  color: #fff !important;
+  top: 5px !important;
+  right: 5px !important;
+  width: 20px !important;
+  height: 20px !important;
+  line-height: 20px !important;
+  text-align: center;
+}
+
+.ldmap_popup_tip {
+  border-top-color: rgba(15, 23, 42, 0.95) !important;
+}
+
+/* Pulsing Marker Animation */
+@keyframes marker-pulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+  }
+
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 15px rgba(239, 68, 68, 0);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+  }
+}
+
+.marker-pulse-red {
+  animation: marker-pulse 2s infinite;
+}

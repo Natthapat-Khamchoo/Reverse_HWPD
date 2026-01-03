@@ -14,6 +14,17 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
             .sort((a, b) => (b.meta.isOpen === true ? 1 : 0) - (a.meta.isOpen === true ? 1 : 0));
     }, [reportData]);
 
+    // Memoize the split lists for Copy buttons to avoid re-filtering on every toggle/render
+    const openLanes = useMemo(() => {
+        if (!reportData || !reportData.activeLanes) return [];
+        return reportData.activeLanes.filter(i => i.meta.isOpen);
+    }, [reportData]);
+
+    const closedLanes = useMemo(() => {
+        if (!reportData || !reportData.activeLanes) return [];
+        return reportData.activeLanes.filter(i => !i.meta.isOpen);
+    }, [reportData]);
+
     const toggleExpand = (id) => {
         setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
     };
@@ -95,10 +106,8 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
         const hasItems = items.length > 0;
 
         if (categoryId === 'cat-lane') {
-            // Note: For large lists, filtering every render is not ideal but better than rendering 2000 items.
-            // Ideally should be passed in as props or memoized outside.
-            const openLanes = items.filter(i => i.meta.isOpen);
-            const closedLanes = items.filter(i => !i.meta.isOpen);
+            // Use pre-calculated memoized lists from parent scope
+            // This prevents expensive filtering on every render/toggle
 
             return (
                 <div

@@ -18,19 +18,26 @@ const LongdoMapViewer = ({ data, apiKey }) => {
 
       data.forEach(item => {
         if (item.lat && item.lng) {
-          const color = item.category.includes('อุบัติเหตุ')
-            ? '#FF0000'
+          const isAccident = item.category.includes('อุบัติเหตุ');
+
+          const color = isAccident
+            ? '#ef4444' // Red-500
             : (CATEGORY_COLORS[item.category] || '#94a3b8');
 
+          // Enhanced Marker HTML
           const markerHtml = `
-            <div style="
-              width: 14px; height: 14px; 
-              background-color: ${color}; 
-              border: 2px solid white; 
-              border-radius: 50%; 
-              box-shadow: 0 0 5px rgba(0,0,0,0.8);
-              cursor: pointer;
-            "></div>
+            <div style="position: relative; display: flex; align-items: center; justify-content: center;">
+               ${isAccident ? '<div class="marker-pulse-red" style="position: absolute; width: 14px; height: 14px; border-radius: 50%;"></div>' : ''}
+               <div style="
+                  width: 14px; height: 14px; 
+                  background-color: ${color}; 
+                  border: 2px solid white; 
+                  border-radius: 50%; 
+                  box-shadow: 0 0 10px rgba(0,0,0,0.5);
+                  cursor: pointer;
+                  z-index: 2;
+               "></div>
+            </div>
           `;
 
           const marker = new longdo.Marker(
@@ -39,10 +46,26 @@ const LongdoMapViewer = ({ data, apiKey }) => {
               title: item.category,
               icon: { html: markerHtml, offset: { x: 7, y: 7 } },
               detail: `
-                <div style="color: #000; min-width: 200px;">
-                   <div style="font-weight:bold; color:blue; border-bottom:1px solid #ccc;">${item.category}</div>
-                   <div style="margin-top:4px;">${item.detail || '-'}</div>
-                   <div style="font-size:10px; color:#666; margin-top:4px;">${item.time} น. | กก.${item.div}</div>
+                <div class="custom-popup-longdo">
+                   <div style="background: ${color}; height: 4px; width: 100%;"></div>
+                   <div style="padding: 12px;">
+                       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px;">
+                           <span style="font-weight: 700; color: #f8fafc; font-size: 14px;">${item.category}</span>
+                           <span style="font-size: 10px; background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; color: #cbd5e1;">${item.time} น.</span>
+                       </div>
+                       
+                       <div style="font-size: 12px; color: #e2e8f0; margin-bottom: 12px; line-height: 1.5;">
+                           ${item.detail || '-'}
+                       </div>
+
+                       <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #94a3b8;">
+                           <div style="display: flex; align-items: center; gap: 4px;">
+                                <span style="display: inline-block; width: 6px; height: 6px; background: ${DIVISION_COLORS[item.div] || '#fff'}; border-radius: 50%;"></span>
+                                กก.${item.div} ส.ทล.${item.st}
+                           </div>
+                           <div style="background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px;">km.${item.km}</div>
+                       </div>
+                   </div>
                 </div>`
             }
           );
