@@ -460,7 +460,6 @@ a:active {
 }
 
 /* --- Longdo Map Custom Popup (Glassmorphism) --- */
-/* --- Longdo Map Custom Popup (Glassmorphism) --- */
 .custom-popup-longdo {
   font-family: 'Inter', sans-serif;
   background: rgba(15, 23, 42, 0.95);
@@ -470,76 +469,45 @@ a:active {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
-  min-width: 200px;
-  /* Smaller width */
-  max-width: 260px;
+  min-width: 180px;
+  /* Reduced to be more compact */
+  max-width: 240px;
   transform: translateY(0px);
 }
 
-/* Force override Longdo Default Popup Bubble */
-.ldmap_popup_container {
+/* Force override Longdo Default Popup Bubble with High Specificity */
+#longdo-map-container .ldmap_popup_container,
+#longdo-map-container .ldmap_popup_content,
+#longdo-map-container .ldmap_popup {
   background: transparent !important;
+  background-color: transparent !important;
   box-shadow: none !important;
   border: none !important;
-  padding: 0 !important;
-}
-
-.ldmap_popup_content {
-  background: transparent !important;
   padding: 0 !important;
   margin: 0 !important;
-  box-shadow: none !important;
-  border: none !important;
 }
 
-.ldmap_popup_close {
+/* Close button - position it nicely outside or on top right */
+#longdo-map-container .ldmap_popup_close {
   background: rgba(255, 255, 255, 0.2) !important;
   border-radius: 50%;
   color: #fff !important;
-  top: -10px !important;
-  right: -10px !important;
-  width: 24px !important;
-  height: 24px !important;
-  line-height: 24px !important;
-  text-align: center;
-  z-index: 100 !important;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
-}
-
-/* Hide the little triangle/arrow if it persists white */
-.ldmap_popup_tip {
-  border-top-color: rgba(15, 23, 42, 0.95) !important;
-}
-
-/* Remove default Longdo popup styles if possible, or override inner elements */
-.ldmap_popup_container {
-  background: transparent !important;
-  box-shadow: none !important;
-  border: none !important;
-}
-
-.ldmap_popup_content {
-  background: transparent !important;
-  padding: 0 !important;
-}
-
-.ldmap_popup_close {
-  background: rgba(255, 255, 255, 0.1) !important;
-  border-radius: 50%;
-  color: #fff !important;
-  top: 5px !important;
-  right: 5px !important;
+  top: -8px !important;
+  right: -8px !important;
   width: 20px !important;
   height: 20px !important;
   line-height: 20px !important;
   text-align: center;
+  font-size: 14px !important;
+  z-index: 200 !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
 }
 
-.ldmap_popup_tip {
-  border-top-color: rgba(15, 23, 42, 0.95) !important;
+#longdo-map-container .ldmap_popup_tip {
+  display: none !important;
+  /* Hide the white arrow tip */
 }
 
-/* Pulsing Marker Animation */
 /* Pulsing Marker Animation */
 @keyframes marker-pulse {
   0% {
