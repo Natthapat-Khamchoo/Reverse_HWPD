@@ -4,6 +4,8 @@ import { ClipboardCopy, X, Copy, CheckCircle, AlertCircle, Files, ChevronDown, C
 export default function ProblemReportModal({ show, onClose, reportText, reportData, reportMetadata, onCopy, copySuccess }) {
     const [copiedIds, setCopiedIds] = useState({});
     const [expanded, setExpanded] = useState({ 'cat-acc': true, 'cat-jam': true, 'cat-lane': true });
+    // Pagination state for heavy lists
+    const [displayLimit, setDisplayLimit] = useState({ 'cat-lane': 50, 'cat-acc': 50, 'cat-jam': 50 });
 
 
     const sortedActiveLanes = useMemo(() => {
@@ -14,6 +16,10 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
 
     const toggleExpand = (id) => {
         setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
+    };
+
+    const loadMore = (id) => {
+        setDisplayLimit(prev => ({ ...prev, [id]: prev[id] + 50 }));
     };
 
     if (!show) return null;
@@ -30,7 +36,8 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
         // Construct the text for the category from the displayed item content
         const text = items.map(item => {
             const loc = item.meta.loc;
-            const description = item.meta.rawText.split(item.meta.loc).pop().replace(/\[.*?\]/, '').trim();
+            // Use pre-calc description if available, otherwise regex fallback
+            const description = item.meta.description || item.meta.rawText.split(item.meta.loc).pop().replace(/\[.*?\]/, '').trim();
             const time = item.meta.time;
             const div = item.meta.div ? `กก.${item.meta.div}` : '';
             return `${loc}\n${description}\n🕒 ${time} ${div}`.trim();
@@ -44,7 +51,9 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
         const isCopied = copiedIds[uniqueId];
 
         // Construct the text for an individual item
-        const itemTextToCopy = `${item.meta.loc}\n${item.meta.rawText.split(item.meta.loc).pop().replace(/\[.*?\]/, '').trim()}\n🕒 ${item.meta.time} ${item.meta.div ? `กก.${item.meta.div}` : ''}`.trim();
+        // Use pre-calc description if available
+        const description = item.meta.description || item.meta.rawText.split(item.meta.loc).pop().replace(/\[.*?\]/, '').trim();
+        const itemTextToCopy = `${item.meta.loc}\n${description}\n🕒 ${item.meta.time} ${item.meta.div ? `กก.${item.meta.div}` : ''}`.trim();
 
         const itemClass = item.meta.isOpen
             ? "bg-green-900/20 border border-green-800/50 hover:bg-green-900/30 text-green-100"
@@ -53,7 +62,7 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
         return (
             <div key={idx} className={`${itemClass} p-3 lg:p-3 p-4 rounded mb-2 text-sm lg:text-xs transition-colors relative group`}>
                 <div className="font-bold text-slate-200 mb-1 pr-6 text-base lg:text-sm">{item.meta.loc}</div>
-                <div className="text-slate-300 lg:text-slate-400 mb-1 text-sm lg:text-xs leading-relaxed">{item.meta.rawText.split(item.meta.loc).pop().replace(/\[.*?\]/, '').trim()}</div>
+                <div className="text-slate-300 lg:text-slate-400 mb-1 text-sm lg:text-xs leading-relaxed">{description}</div>
                 <div className="flex justify-between text-xs lg:text-[10px] text-slate-400 lg:text-slate-500 mt-2 pt-2 border-t border-slate-700/50">
                     <span>🕒 {item.meta.time}</span>
                     <span>{item.meta.div ? `กก.${item.meta.div}` : ''}</span>
@@ -79,7 +88,15 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
         const isExpanded = expanded[categoryId];
 
         // Specific logic for Special Lanes to split Copy functions
+        // Efficient count check using useMemo inside the render flow is tricky due to conditional hook rules.
+        // Instead, just do simple length checks. The filter itself on huge lists is somewhat costly but 
+        // the main freeze comes from rendering.
+
+        const hasItems = items.length > 0;
+
         if (categoryId === 'cat-lane') {
+            // Note: For large lists, filtering every render is not ideal but better than rendering 2000 items.
+            // Ideally should be passed in as props or memoized outside.
             const openLanes = items.filter(i => i.meta.isOpen);
             const closedLanes = items.filter(i => !i.meta.isOpen);
 
@@ -202,8 +219,20 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
                                 {expanded['cat-lane'] && (
                                     <div className="lg:flex-1 lg:overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
                                         {reportData.activeLanes.length > 0 ? (
-                                            sortedActiveLanes
-                                                .map((item, idx) => renderItem(item, idx, 'lane'))
+                                            <>
+                                                {sortedActiveLanes
+                                                    .slice(0, displayLimit['cat-lane'])
+                                                    .map((item, idx) => renderItem(item, idx, 'lane'))}
+
+                                                {sortedActiveLanes.length > displayLimit['cat-lane'] && (
+                                                    <button
+                                                        onClick={() => loadMore('cat-lane')}
+                                                        className="w-full py-2 text-xs text-slate-400 hover:text-white bg-slate-800/50 hover:bg-slate-700 rounded transition-colors"
+                                                    >
+                                                        แสดงเพิ่มเติม ({sortedActiveLanes.length - displayLimit['cat-lane']} รายการ)
+                                                    </button>
+                                                )}
+                                            </>
                                         ) : (
                                             <div className="text-center text-slate-600 py-8 text-sm lg:text-xs">ไม่มีการเปิดช่องทางพิเศษ</div>
                                         )}

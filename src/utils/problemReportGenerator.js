@@ -65,6 +65,7 @@ export const formatBlock = (item, type = 'general') => {
             road: item.road, // Add road for grouping
             loc: roadInfo,
             rawText: `${roadInfo} ${detailTxt} ${headerTitle}`.toLowerCase(), // Add raw text for search
+            description: detailTxt, // Pre-calculated description
             isOpen: (type === 'activeLane' && item.isEnhanced && !item.closeInfo) // Flag for styling
         }
     };
