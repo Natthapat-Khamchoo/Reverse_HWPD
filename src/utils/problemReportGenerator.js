@@ -85,8 +85,16 @@ export const generateProblemReport = (rawData, specialLaneStats = null) => {
     // Lane Logic: Use provided stats OR fallback to basic logic
     if (specialLaneStats && specialLaneStats.allEnhancedLanes) {
         // Use the Enhanced List (Contains both Open and Closed sessions)
-        // Mark them as isEnhanced for the formatter
-        activeLanes = specialLaneStats.allEnhancedLanes.map(l => ({ ...l, isEnhanced: true }));
+        // Filter: Keep if (Opened Today) OR (Closed Today) OR (Still Active)
+        activeLanes = specialLaneStats.allEnhancedLanes
+            .filter(l => {
+                const isOpenToday = l.date === todayStr;
+                const isClosedToday = l.closeInfo && l.closeInfo.date === todayStr;
+                const isStillActive = l.isStillActive;
+                return isOpenToday || isClosedToday || isStillActive;
+            })
+            .map(l => ({ ...l, isEnhanced: true }));
+
         // Sort by time descending
         activeLanes.sort((a, b) => b.timestamp - a.timestamp);
     } else {

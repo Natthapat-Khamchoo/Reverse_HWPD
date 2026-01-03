@@ -1,9 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { ClipboardCopy, X, Copy, CheckCircle, AlertCircle, Files, ChevronDown, ChevronUp } from 'lucide-react';
 
 export default function ProblemReportModal({ show, onClose, reportText, reportData, reportMetadata, onCopy, copySuccess }) {
     const [copiedIds, setCopiedIds] = useState({});
     const [expanded, setExpanded] = useState({ 'cat-acc': true, 'cat-jam': true, 'cat-lane': true });
+
+
+    const sortedActiveLanes = useMemo(() => {
+        if (!reportData || !reportData.activeLanes) return [];
+        return [...reportData.activeLanes]
+            .sort((a, b) => (b.meta.isOpen === true ? 1 : 0) - (a.meta.isOpen === true ? 1 : 0));
+    }, [reportData]);
 
     const toggleExpand = (id) => {
         setExpanded(prev => ({ ...prev, [id]: !prev[id] }));
@@ -195,8 +202,7 @@ export default function ProblemReportModal({ show, onClose, reportText, reportDa
                                 {expanded['cat-lane'] && (
                                     <div className="lg:flex-1 lg:overflow-y-auto p-2 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
                                         {reportData.activeLanes.length > 0 ? (
-                                            [...reportData.activeLanes]
-                                                .sort((a, b) => (b.meta.isOpen === true ? 1 : 0) - (a.meta.isOpen === true ? 1 : 0))
+                                            sortedActiveLanes
                                                 .map((item, idx) => renderItem(item, idx, 'lane'))
                                         ) : (
                                             <div className="text-center text-slate-600 py-8 text-sm lg:text-xs">ไม่มีการเปิดช่องทางพิเศษ</div>
