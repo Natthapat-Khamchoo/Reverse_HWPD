@@ -460,19 +460,55 @@ a:active {
 }
 
 /* --- Longdo Map Custom Popup (Glassmorphism) --- */
+/* --- Longdo Map Custom Popup (Glassmorphism) --- */
 .custom-popup-longdo {
   font-family: 'Inter', sans-serif;
   background: rgba(15, 23, 42, 0.95);
-  /* Slate 900 with opacity */
+  /* Slate 900 */
   backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
-  min-width: 240px;
-  max-width: 300px;
-  transform: translateY(-10px);
-  /* Lift slightly above marker */
+  min-width: 200px;
+  /* Smaller width */
+  max-width: 260px;
+  transform: translateY(0px);
+}
+
+/* Force override Longdo Default Popup Bubble */
+.ldmap_popup_container {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  padding: 0 !important;
+}
+
+.ldmap_popup_content {
+  background: transparent !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.ldmap_popup_close {
+  background: rgba(255, 255, 255, 0.2) !important;
+  border-radius: 50%;
+  color: #fff !important;
+  top: -10px !important;
+  right: -10px !important;
+  width: 24px !important;
+  height: 24px !important;
+  line-height: 24px !important;
+  text-align: center;
+  z-index: 100 !important;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+/* Hide the little triangle/arrow if it persists white */
+.ldmap_popup_tip {
+  border-top-color: rgba(15, 23, 42, 0.95) !important;
 }
 
 /* Remove default Longdo popup styles if possible, or override inner elements */
@@ -504,6 +540,7 @@ a:active {
 }
 
 /* Pulsing Marker Animation */
+/* Pulsing Marker Animation */
 @keyframes marker-pulse {
   0% {
     transform: scale(1);
@@ -512,7 +549,7 @@ a:active {
 
   70% {
     transform: scale(1);
-    box-shadow: 0 0 0 15px rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 20px rgba(239, 68, 68, 0);
   }
 
   100% {
@@ -521,6 +558,27 @@ a:active {
   }
 }
 
+@keyframes marker-pulse-green {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.7);
+  }
+
+  70% {
+    transform: scale(1);
+    box-shadow: 0 0 0 20px rgba(34, 197, 94, 0);
+  }
+
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+}
+
 .marker-pulse-red {
   animation: marker-pulse 2s infinite;
+}
+
+.marker-pulse-green {
+  animation: marker-pulse-green 2s infinite;
 }

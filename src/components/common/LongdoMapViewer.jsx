@@ -19,6 +19,7 @@ const LongdoMapViewer = ({ data, apiKey }) => {
       data.forEach(item => {
         if (item.lat && item.lng) {
           const isAccident = item.category.includes('อุบัติเหตุ');
+          const isSpecialLane = item.category.includes('ช่องทางพิเศษ');
 
           const color = isAccident
             ? '#ef4444' // Red-500
@@ -28,6 +29,7 @@ const LongdoMapViewer = ({ data, apiKey }) => {
           const markerHtml = `
             <div style="position: relative; display: flex; align-items: center; justify-content: center;">
                ${isAccident ? '<div class="marker-pulse-red" style="position: absolute; width: 14px; height: 14px; border-radius: 50%;"></div>' : ''}
+               ${isSpecialLane ? '<div class="marker-pulse-green" style="position: absolute; width: 14px; height: 14px; border-radius: 50%;"></div>' : ''}
                <div style="
                   width: 14px; height: 14px; 
                   background-color: ${color}; 
