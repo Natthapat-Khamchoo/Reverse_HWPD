@@ -106,6 +106,11 @@
   .animate-modal-entry {
     animation: modalEntry 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
+
+  /* 3D Transforms Utility */
+  .transform-3d {
+    transform-style: preserve-3d;
+  }
 }
 
 @keyframes fadeInUp {
@@ -378,4 +383,78 @@ a:active {
   to {
     opacity: 1;
   }
+}
+
+/* --- Digital Road Animations (Smoother) --- */
+@keyframes grid-move {
+  0% {
+    background-position: 0 0;
+  }
+
+  100% {
+    background-position: 0 100px;
+    /* Moves exactly one grid cell */
+  }
+}
+
+.animate-grid-move {
+  animation: grid-move 1.5s linear infinite;
+}
+
+@keyframes scanline {
+  0% {
+    top: -10%;
+  }
+
+  100% {
+    top: 110%;
+  }
+}
+
+.animate-scanline {
+  animation: scanline 2.5s linear infinite;
+}
+
+/* Traffic Flow Stream (High Speed) */
+@keyframes traffic-flow {
+  0% {
+    opacity: 0;
+    transform: perspective(600px) translateZ(-500px) scale(0.1);
+  }
+
+  30% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: perspective(600px) translateZ(500px) scale(1.5);
+  }
+}
+
+.animate-traffic-flow {
+  /* Random durations will be applied inline */
+  animation-name: traffic-flow;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+/* Police Siren Ambient Pulse */
+@keyframes police-pulse {
+
+  0%,
+  100% {
+    box-shadow: inset 0 0 100px rgba(59, 130, 246, 0.1);
+  }
+
+  /* Blue */
+  50% {
+    box-shadow: inset 0 0 100px rgba(239, 68, 68, 0.1);
+  }
+
+  /* Red */
+}
+
+.animate-police-pulse {
+  animation: police-pulse 3s ease-in-out infinite;
 }
