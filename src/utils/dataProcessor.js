@@ -199,12 +199,12 @@ export const processSheetData = (rawData, sourceFormat) => {
             if (amountRaw) {
                 const amtMatch = amountRaw.match(/(\d+)/);
                 if (amtMatch) drunkDriverCount = parseInt(amtMatch[1], 10);
-                // Debug Mismatch
-                console.log(`🍺 Drunk Check:`, { raw: amountRaw, extracted: drunkDriverCount, unit: unitRaw, detail: detailText });
-            } else {
-                console.log(`🍺 Drunk Check (No Amount):`, { raw: amountRaw, detail: detailText });
             }
         }
+
+        // 6. Cause Extraction (For Analytics)
+        let cause = getVal(['มูลเหตุสันนิษฐาน', 'cause', 'สาเหตุ']);
+        if (cause === '-') cause = 'ไม่ระบุ';
 
         return {
             id: `${sourceFormat}-${index}`,
@@ -213,6 +213,7 @@ export const processSheetData = (rawData, sourceFormat) => {
             road: road || 'ไม่ระบุ', km: km || '-', dir: dir || '-',
             lat: lat, lng: lng, colorClass: statusColor, reportFormat: sourceFormat,
             drunkDriverCount: drunkDriverCount,
+            cause: cause, // New Field for Analytics
             timestamp: new Date(`${dateStr}T${timeStr}`).getTime() || 0
         };
     });

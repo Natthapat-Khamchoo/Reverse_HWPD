@@ -24,6 +24,12 @@ import TimeAnalysisSection from './components/dashboard/TimeAnalysisSection';
 import ReportModal from './components/report/ReportModal';
 import ProblemReportModal from './components/report/ProblemReportModal';
 
+// New Views & Layout
+import Sidebar from './components/layout/Sidebar';
+import AccidentAnalytics from './components/views/AccidentAnalytics';
+import EnforcementAnalytics from './components/views/EnforcementAnalytics';
+import SpecialLaneAnalytics from './components/views/SpecialLaneAnalytics';
+
 // Registration
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
 ChartJS.defaults.color = '#94a3b8';
@@ -53,6 +59,10 @@ export default function App() {
   const [error, setError] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   const [lastUpdated, setLastUpdated] = useState(new Date());
+
+  // Navigation State
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true); // Default open on desktop
+  const [currentView, setCurrentView] = useState('dashboard'); // 'dashboard', 'accident', 'enforcement', 'special_lane'
 
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
@@ -507,41 +517,97 @@ export default function App() {
       </div>
 
       {/* Content Container (z-10 to stay above bg) */}
-      <div className="relative z-10 p-4 md:p-6 max-w-[1600px] mx-auto">
-        <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} stats={stats} />
-        <ProblemReportModal
-          show={showProblemReportModal}
-          onClose={() => setShowProblemReportModal(false)}
-          reportText={problemReportText}
-          reportData={problemReportData}
-          reportMetadata={problemReportMetadata}
-          onCopy={handleCopyProblemText}
-          copySuccess={copyProblemSuccess}
+      <div className="relative z-10 flex min-h-screen">
+
+        {/* SIDEBAR NAVIGATION */}
+        <Sidebar
+          isOpen={isSidebarOpen}
+          setIsOpen={setIsSidebarOpen}
+          currentView={currentView}
+          setCurrentView={setCurrentView}
         />
 
-        {/* Holiday Alert Banner */}
-        {isHolidayPeriod() && (
-          <div className="mb-4 p-4 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg border-2 border-orange-400 shadow-xl animate-pulse">
-            <div className="flex items-center gap-3">
-              <div className="text-3xl">🎊</div>
-              <div>
-                <div className="font-bold text-lg">⚠️ ช่วงเทศกาลปีใหม่ (29 ธ.ค. - 4 ม.ค.)</div>
-                <div className="text-sm mt-1 opacity-90">การจราจรอาจหนาแน่นกว่าปกติมาก โปรดติดตามสถานการณ์อย่างใกล้ชิดและสร้างรายงานบ่อยๆ | ระบบปรับเกณฑ์การทำนายให้เข้มงวดขึ้นอัตโนมัติ</div>
+        {/* MAIN CONTENT AREA */}
+        <div className={`flex-1 transition-all duration-300 ${isSidebarOpen ? 'ml-0 md:ml-64' : 'ml-0 md:ml-20'}`}>
+          <div className="p-4 md:p-6 max-w-[1920px] mx-auto">
+            <ReportModal show={showReportModal} onClose={() => setShowReportModal(false)} isGenerating={isGeneratingReport} reportText={generatedReportText} reportMetadata={reportMetadata} onCopy={handleCopyText} copySuccess={copySuccess} direction={reportDirection} stats={stats} />
+            <ProblemReportModal
+              show={showProblemReportModal}
+              onClose={() => setShowProblemReportModal(false)}
+              reportText={problemReportText}
+              reportData={problemReportData}
+              reportMetadata={problemReportMetadata}
+              onCopy={handleCopyProblemText}
+              copySuccess={copyProblemSuccess}
+            />
+
+            {/* Header (Only show for Dashboard for now, or unified header?) */}
+            <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} onGenerateReportProblem={handleGenerateProblemReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
+
+            {/* GLOBAL FILTERS */}
+            {showFilters && (
+              <FilterSection
+                dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption}
+                customStart={customStart} setCustomStart={setCustomStart}
+                customEnd={customEnd} setCustomEnd={setCustomEnd}
+                filterDiv={filterDiv} setFilterDiv={setFilterDiv}
+                filterSt={filterSt} setFilterSt={setFilterSt}
+                stations={stations}
+                selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories}
+                selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads}
+                uniqueRoads={uniqueRoads}
+              />
+            )}
+
+            {/* VIEW SWITCHER */}
+            {currentView === 'dashboard' && (
+              <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                {/* Holiday Alert Banner */}
+                {isHolidayPeriod() && (
+                  <div className="mb-4 p-4 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-lg border-2 border-orange-400 shadow-xl animate-pulse">
+                    <div className="flex items-center gap-3">
+                      <div className="text-3xl">🎊</div>
+                      <div>
+                        <div className="font-bold text-lg">⚠️ ช่วงเทศกาลปีใหม่ (29 ธ.ค. - 4 ม.ค.)</div>
+                        <div className="text-sm mt-1 opacity-90">การจราจรอาจหนาแน่นกว่าปกติมาก โปรดติดตามสถานการณ์อย่างใกล้ชิดและสร้างรายงานบ่อยๆ | ระบบปรับเกณฑ์การทำนายให้เข้มงวดขึ้นอัตโนมัติ</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <StatCards visualData={visualData} stats={stats} />
+                <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
+                <TimeAnalysisSection rawData={rawData} filterStartDate={filterStartDate} filterEndDate={filterEndDate} />
+                <LogTablesSection logData={logData} accidentLogData={accidentLogData} specialLaneLogData={specialLaneLogData} />
+                <TrendChartSection trendChartConfig={trendChartConfig} trendStart={trendStart} setTrendStart={setTrendStart} trendEnd={trendEnd} setTrendEnd={setTrendEnd} />
               </div>
-            </div>
+            )}
+
+            {currentView === 'accident' && (
+              <AccidentAnalytics
+                rawData={rawData}
+                dateFilter={{ start: filterStartDate, end: filterEndDate }}
+                filters={{ div: filterDiv, st: filterSt, roads: selectedRoads }}
+              />
+            )}
+
+            {currentView === 'enforcement' && (
+              <EnforcementAnalytics
+                rawData={rawData}
+                dateFilter={{ start: filterStartDate, end: filterEndDate }}
+                filters={{ div: filterDiv, st: filterSt }}
+              />
+            )}
+
+            {currentView === 'special_lane' && (
+              <SpecialLaneAnalytics
+                rawData={rawData}
+                dateFilter={{ start: filterStartDate, end: filterEndDate }}
+                filters={{ div: filterDiv, st: filterSt, roads: selectedRoads }}
+              />
+            )}
           </div>
-        )}
-
-        <DashboardHeader lastUpdated={lastUpdated} onRefresh={() => fetchData(false)} onToggleFilter={() => setShowFilters(!showFilters)} showFilters={showFilters} onGenerateReport={handleGenerateReport} onGenerateReportProblem={handleGenerateProblemReport} reportDirection={reportDirection} setReportDirection={setReportDirection} />
-        {showFilters && (<FilterSection dateRangeOption={dateRangeOption} setDateRangeOption={setDateRangeOption} customStart={customStart} setCustomStart={setCustomStart} customEnd={customEnd} setCustomEnd={setCustomEnd} filterDiv={filterDiv} setFilterDiv={setFilterDiv} filterSt={filterSt} setFilterSt={setFilterSt} stations={stations} selectedCategories={selectedCategories} setSelectedCategories={setSelectedCategories} selectedRoads={selectedRoads} setSelectedRoads={setSelectedRoads} uniqueRoads={uniqueRoads} />)}
-        <StatCards visualData={visualData} stats={stats} />
-        <MapAndChartSection mapData={mapData} stats={stats} handleChartClick={handleChartClick} LONGDO_API_KEY={LONGDO_API_KEY} />
-
-        {/* New Time Analysis Section */}
-        <TimeAnalysisSection rawData={rawData} filterStartDate={filterStartDate} filterEndDate={filterEndDate} />
-
-        <LogTablesSection logData={logData} accidentLogData={accidentLogData} specialLaneLogData={specialLaneLogData} />
-        <TrendChartSection trendChartConfig={trendChartConfig} trendStart={trendStart} setTrendStart={setTrendStart} trendEnd={trendEnd} setTrendEnd={setTrendEnd} />
+        </div>
       </div>
     </div>
   );

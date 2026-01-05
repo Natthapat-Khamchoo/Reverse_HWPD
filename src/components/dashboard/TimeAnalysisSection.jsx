@@ -110,6 +110,7 @@ export default function TimeAnalysisSection({ rawData, filterStartDate, filterEn
     plugins: {
       legend: { position: 'top', labels: { color: '#cbd5e1' } },
       title: { display: false },
+      datalabels: { display: false }
     },
     scales: {
       y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' } },

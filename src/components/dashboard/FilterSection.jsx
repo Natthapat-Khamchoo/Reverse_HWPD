@@ -32,7 +32,7 @@ export default function FilterSection({
   }, []);
 
   return (
-    <div className="glass-panel p-5 rounded-2xl mb-6 flex flex-col gap-4 animate-fade-in-up relative z-50" style={{ animationDelay: '100ms' }}>
+    <div className="glass-panel p-5 rounded-2xl mb-6 flex flex-col gap-4 animate-fade-in-up relative z-30" style={{ animationDelay: '100ms' }}>
 
       {/* Row 1: Primary Filters (Date, Div, St) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 relative z-40">
