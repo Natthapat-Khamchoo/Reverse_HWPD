@@ -1,9 +1,15 @@
 export default async function handler(req, res) {
   const { slat, slon, elat, elon } = req.query;
-  const apiKey = "43c345d5dae4db42926bd41ae0b5b0fa"; // Key ของคุณ
+  const apiKey = process.env.VITE_LONGDO_API_KEY;
 
   if (!slat || !slon || !elat || !elon) {
     return res.status(400).json({ error: 'Missing coordinates' });
+  }
+
+  // Input Validation (OWASP: Prevent Injection / Invalid requests)
+  const isValidCoord = (c) => !isNaN(parseFloat(c)) && isFinite(c);
+  if (!isValidCoord(slat) || !isValidCoord(slon) || !isValidCoord(elat) || !isValidCoord(elon)) {
+    return res.status(400).json({ error: 'Invalid coordinate format' });
   }
 
   const url = `https://api.longdo.com/RouteService/json/route/guide?flon=${slon}&flat=${slat}&tlon=${elon}&tlat=${elat}&mode=d&key=${apiKey}`;

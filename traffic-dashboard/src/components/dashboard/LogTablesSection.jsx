@@ -101,12 +101,12 @@ export default function LogTablesSection({ logData, accidentLogData, specialLane
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
       {/* Left: General Log */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden hover-lift-glow">
-        <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500" /> รายการเหตุการณ์ (Log)</h3><span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">แสดง {logData.length} รายการ</span></div>
+        <div className="px-4 py-3 bg-slate-900/80 border-b border-slate-700 flex justify-between items-center"><h3 className="text-white text-sm font-bold flex items-center gap-2"><Siren size={16} className="text-yellow-500" /> รายการเหตุการณ์ (Log)</h3><span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded border border-slate-600">{logData.length > 200 ? `แสดงล่าสุด 200/${logData.length} รายการ` : `แสดง ${logData.length} รายการ`}</span></div>
         <div className="flex-1 overflow-y-auto custom-scrollbar">
           <table className="w-full text-xs text-left text-slate-300">
             <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10"><tr><th className="px-3 py-3 font-semibold">เวลา</th><th className="px-3 py-3 font-semibold">หน่วย</th><th className="px-3 py-3 font-semibold">ประเภท</th><th className="px-3 py-3 font-semibold">รายละเอียด</th></tr></thead>
             <tbody className="divide-y divide-slate-700/50">
-              {logData.length > 0 ? logData.map((item, idx) => (
+              {logData.length > 0 ? logData.slice(0, 200).map((item, idx) => (
                 <tr key={idx} className={`hover:bg-slate-700/30 transition-colors ${item.category.includes('ปิด') ? 'opacity-50' : ''}`}>
                   <td className="px-3 py-3 align-top whitespace-nowrap"><div className="text-yellow-400 font-mono font-bold">{item.time} น.</div><div className="text-[10px] text-slate-500">{item.date}</div></td>
                   <td className="px-3 py-3 align-top whitespace-nowrap"><span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">กก.{item.div} ส.ทล.{item.st}</span></td>
@@ -339,12 +339,12 @@ export default function LogTablesSection({ logData, accidentLogData, specialLane
 
       {/* Right: Accident Log */}
       <div className="bg-slate-800 rounded-lg border border-slate-700 shadow-md flex flex-col h-[400px] overflow-hidden hover-lift-glow">
-        <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center"><h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500" /> อุบัติเหตุ (ทุกหน่วยงาน)</h3><span className="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded border border-red-800">รวม {accidentLogData.length} รายการ</span></div>
+        <div className="px-4 py-3 bg-red-900/20 border-b border-red-900/50 flex justify-between items-center"><h3 className="text-red-200 text-sm font-bold flex items-center gap-2"><AlertTriangle size={16} className="text-red-500" /> อุบัติเหตุ (ทุกหน่วยงาน)</h3><span className="text-xs text-red-300 bg-red-900/30 px-2 py-1 rounded border border-red-800">{accidentLogData.length > 200 ? `แสดงสูงสุด 200/${accidentLogData.length} รายการ` : `รวม ${accidentLogData.length} รายการ`}</span></div>
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-900/30">
           <table className="w-full text-xs text-left text-slate-300">
             <thead className="uppercase bg-slate-900 text-slate-500 sticky top-0 z-10"><tr><th className="px-3 py-3 font-semibold w-[15%]">เวลา</th><th className="px-3 py-3 font-semibold w-[15%]">หน่วย</th><th className="px-3 py-3 font-semibold w-[25%]">จุดเกิดเหตุ</th><th className="px-3 py-3 font-semibold w-[45%]">รายละเอียด</th></tr></thead>
             <tbody className="divide-y divide-slate-700/50">
-              {accidentLogData.length > 0 ? accidentLogData.map((item, idx) => (
+              {accidentLogData.length > 0 ? accidentLogData.slice(0, 200).map((item, idx) => (
                 <tr key={idx} className="hover:bg-red-900/10 transition-colors">
                   <td className="px-3 py-3 align-top whitespace-nowrap"><div className="text-red-400 font-mono font-bold">{item.time} น.</div><div className="text-[10px] text-slate-500">{item.date}</div></td>
                   <td className="px-3 py-3 align-top whitespace-nowrap"><span className="bg-slate-900 border border-slate-600 text-slate-300 px-1.5 py-0.5 rounded text-[10px]">กก.{item.div} ส.ทล.{item.st}</span></td>

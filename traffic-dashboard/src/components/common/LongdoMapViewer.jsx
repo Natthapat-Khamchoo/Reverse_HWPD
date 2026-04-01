@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CATEGORY_COLORS, DIVISION_COLORS } from '../../constants/config';
 
-const LongdoMapViewer = ({ data, apiKey }) => {
+const LongdoMapViewer = ({ data, apiKey, currentView }) => {
   const mapInstance = useRef(null);
   const [status, setStatus] = useState("Loading...");
   const mapId = "longdo-map-container";
@@ -14,13 +14,17 @@ const LongdoMapViewer = ({ data, apiKey }) => {
       const longdo = window.longdo;
       mapInstance.current.Overlays.clear(); // ลบหมุดเก่า
 
-      data.forEach(item => {
+      const isHeatmapMode = currentView === 'accident' || currentView === 'div8_accident';
+      const safeData = data.slice(0, 1500); // limit to prevent severe lag!
+
+      safeData.forEach(item => {
         if (item.lat && item.lng) {
-          const color = item.category.includes('อุบัติเหตุ')
+          const isAccident = item.category.includes('อุบัติเหตุ');
+          const color = isAccident
             ? '#FF0000'
             : (CATEGORY_COLORS[item.category] || '#94a3b8');
 
-          const markerHtml = `
+          let markerHtml = `
             <div style="
               width: 14px; height: 14px; 
               background-color: ${color}; 
@@ -31,11 +35,23 @@ const LongdoMapViewer = ({ data, apiKey }) => {
             "></div>
           `;
 
+          if (isHeatmapMode && isAccident) {
+            markerHtml = `
+              <div style="
+                width: 40px; height: 40px; 
+                background: radial-gradient(circle, rgba(255,0,0,0.8) 0%, rgba(255,165,0,0.4) 40%, rgba(255,0,0,0) 70%); 
+                border-radius: 50%; 
+                pointer-events: none;
+                mix-blend-mode: screen;
+              "></div>
+            `;
+          }
+
           const marker = new longdo.Marker(
             { lon: item.lng, lat: item.lat },
             {
               title: item.category,
-              icon: { html: markerHtml, offset: { x: 7, y: 7 } },
+              icon: { html: markerHtml, offset: isHeatmapMode && isAccident ? { x: 20, y: 20 } : { x: 7, y: 7 } },
               detail: `
                 <div style="color: #000; min-width: 200px;">
                    <div style="font-weight:bold; color:blue; border-bottom:1px solid #ccc;">${item.category}</div>
@@ -134,8 +150,11 @@ const LongdoMapViewer = ({ data, apiKey }) => {
 
   // อัปเดตหมุดเมื่อข้อมูลเปลี่ยน
   useEffect(() => {
-    if (status === 'Ready') updateMarkers();
-  }, [data, status]);
+    if (status === 'Ready') {
+      // Defer map rendering slightly to prevent blocking the UI layout transition
+      requestAnimationFrame(() => updateMarkers());
+    }
+  }, [data, status, currentView]);
 
   return (
     <div className="w-full h-full relative bg-slate-900 rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>
