@@ -8,40 +8,58 @@ export const generateTrafficReport = async (rawData, direction) => {
     const dateStr = now.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
     const timeStr = now.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
     const todayFilterStr = getThaiDateStr(now);
-    const directionText = direction === 'outbound' ? '(ขาออก)' : '(ขาเข้า)';
+    const directionText = direction === 'outbound' ? 'ขาออก (มุ่งหน้าต่างจังหวัด)' : 'ขาเข้า (เข้ากรุงเทพฯ)';
+    const STALE_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 Hours
 
-    let report = `บก.ทล.\nรายงานสภาพการจราจร ${directionText}\nวันที่ ${dateStr} เวลา ${timeStr} น. ดังนี้\n\n`;
+    let report = `📢 รายงานสภาพการจราจร ${directionText}\n📅 วันที่ ${dateStr} เวลา ${timeStr} น.\n\n`;
+    const reportMetadata = [];
 
     for (const region of TRAFFIC_DATA) {
-        let regionHasRoads = false;
-        let regionReport = `${region.region}\n`;
+        let regionReport = `📍 [${region.region}]\n`;
+        let hasContent = false;
 
         for (const road of region.roads) {
-            regionHasRoads = true;
-            // Find existing report from officer
-            const officerReport = rawData.find(d =>
+            hasContent = true;
+
+            // 1. Get Latest Officer Report
+            const relevantReports = rawData.filter(d =>
                 d.road === road.id &&
                 d.date === todayFilterStr &&
                 (d.category === 'จราจรติดขัด' || d.category === 'สภาพจราจร' || d.category === 'ช่องทางพิเศษ' || d.detail.includes('จราจร') || d.detail.includes('รถ'))
             );
+            relevantReports.sort((a, b) => b.timestamp - a.timestamp);
+
+            const latestReport = relevantReports[0];
+            let useOfficerReport = false;
+            let timeLabel = "";
+
+            if (latestReport) {
+                const diff = now.getTime() - latestReport.timestamp;
+                if (diff < STALE_THRESHOLD_MS) {
+                    useOfficerReport = true;
+                    timeLabel = ` (${latestReport.time} น.)`;
+                }
+            }
 
             let finalStatus = "";
             let prefixEmoji = "";
+            let predictedStatus = "";
 
-            if (officerReport) {
-                // Priority 1: Use Officer's Report
-                const analysis = analyzeTrafficText(officerReport.detail);
-                const laneInfo = officerReport.category.includes('ช่องทางพิเศษ') || officerReport.detail.includes('เปิดช่องทาง') ? ' (เปิดช่องทางพิเศษ)' : '';
+            if (useOfficerReport) {
+                // Officer Report
+                const analysis = analyzeTrafficText(latestReport.detail);
+                const laneInfo = latestReport.category.includes('ช่องทางพิเศษ') || latestReport.detail.includes('เปิดช่องทาง') ? ' \n🟢 (เปิดช่องทางพิเศษแล้ว)' : '';
                 prefixEmoji = analysis.emoji;
-                let cleanDetail = officerReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
-                finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo} (จนท.รายงาน)`;
+                let cleanDetail = latestReport.detail.replace(/^(สภาพจราจร|รายละเอียด)[:\s-]*/g, '');
+                finalStatus = `${prefixEmoji} ${cleanDetail}${laneInfo}${timeLabel}`;
+                predictedStatus = analysis.status;
             } else {
-                // Priority 2: Use API Data (Longdo / Mock)
+                // API Report
                 const segmentPromises = road.segments.map(async (seg) => {
                     let start = seg.start;
                     let end = seg.end;
-                    if (direction === 'inbound') { start = seg.end; end = seg.start; } // Swap logic for inbound
-                    const result = await getTrafficFromCoords(start, end);
+                    if (direction === 'inbound') { start = seg.end; end = seg.start; }
+                    const result = await getTrafficFromCoords(start, end, road.id);
                     return { label: seg.label, ...result };
                 });
 
@@ -52,20 +70,53 @@ export const generateTrafficReport = async (rawData, direction) => {
 
                 if (problematic.length > 0) {
                     prefixEmoji = "🟡";
-                    if (problematic.some(r => r.code >= 3)) prefixEmoji = "🔴";
-                    finalStatus = problematic.map(p => `${p.label} ${p.status}`).join(', ');
-                    finalStatus = `${prefixEmoji} ${finalStatus}`;
+                    predictedStatus = "หนาแน่น";
+                    if (problematic.some(r => r.code >= 3)) {
+                        prefixEmoji = "🔴";
+                        predictedStatus = "ติดขัด";
+                    }
+                    const details = problematic.map(p => `${p.label} ${p.status}`).join(', ');
+                    finalStatus = `${prefixEmoji} ${details}`;
                 } else if (allGreen) {
-                    finalStatus = "✅ สภาพการจราจรคล่องตัวตลอดสาย";
+                    finalStatus = "✅ คล่องตัวตลอดสาย";
+                    predictedStatus = "คล่องตัว";
                 } else if (apiError) {
-                    finalStatus = "⚫ อยู่ระหว่างตรวจสอบข้อมูล";
+                    if (latestReport) {
+                        const analysis = analyzeTrafficText(latestReport.detail);
+                        finalStatus = `${analysis.emoji} ${latestReport.detail} (ข้อมูลเดิม ${latestReport.time} น.)`;
+                        predictedStatus = analysis.status;
+                    } else {
+                        finalStatus = "⚫ อยู่ระหว่างตรวจสอบ";
+                        predictedStatus = "ตรวจสอบไม่ได้";
+                    }
                 } else {
-                    finalStatus = "✅ สภาพการจราจรเคลื่อนตัวได้ดี";
+                    finalStatus = "✅ เคลื่อนตัวได้ดี";
+                    predictedStatus = "คล่องตัว";
                 }
             }
-            regionReport += `- ${road.name} : ${finalStatus}\n`;
+
+            // New Line Format
+            regionReport += `🛣️ ${road.name}:\n   ${finalStatus}\n`;
+
+            reportMetadata.push({
+                roadId: road.id,
+                roadName: road.name,
+                predictedStatus,
+                emoji: prefixEmoji,
+                region: region.region
+            });
         }
-        if (regionHasRoads) report += regionReport;
+
+        regionReport += `\n`; // Spacing between regions
+        if (hasContent) report += regionReport;
     }
-    return report;
+
+    report += `--------------------------------\nสายด่วนตำรวจทางหลวง 1193`;
+
+    return {
+        text: report,
+        metadata: reportMetadata,
+        direction,
+        timestamp: now.getTime()
+    };
 };

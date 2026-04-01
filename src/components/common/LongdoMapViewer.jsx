@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { CATEGORY_COLORS, DIVISION_COLORS } from '../../constants/config';
 
-const LongdoMapViewer = ({ data, apiKey }) => {
+const LongdoMapViewer = ({ data, apiKey, currentView, onManualClose }) => {
   const mapInstance = useRef(null);
   const [status, setStatus] = useState("Loading...");
   const mapId = "longdo-map-container";
@@ -14,13 +14,17 @@ const LongdoMapViewer = ({ data, apiKey }) => {
       const longdo = window.longdo;
       mapInstance.current.Overlays.clear(); // ลบหมุดเก่า
 
-      data.forEach(item => {
+      const isHeatmapMode = currentView === 'accident' || currentView === 'div8_accident';
+      const safeData = data.slice(0, 1500); // limit to prevent severe lag!
+
+      safeData.forEach(item => {
         if (item.lat && item.lng) {
-          const color = item.category.includes('อุบัติเหตุ')
+          const isAccident = item.category.includes('อุบัติเหตุ');
+          const color = isAccident
             ? '#FF0000'
             : (CATEGORY_COLORS[item.category] || '#94a3b8');
 
-          const markerHtml = `
+          let markerHtml = `
             <div style="
               width: 14px; height: 14px; 
               background-color: ${color}; 
@@ -31,16 +35,40 @@ const LongdoMapViewer = ({ data, apiKey }) => {
             "></div>
           `;
 
+          if (isHeatmapMode && isAccident) {
+            markerHtml = `
+              <div style="
+                width: 40px; height: 40px; 
+                background: radial-gradient(circle, rgba(255,0,0,0.8) 0%, rgba(255,165,0,0.4) 40%, rgba(255,0,0,0) 70%); 
+                border-radius: 50%; 
+                pointer-events: none;
+                mix-blend-mode: screen;
+              "></div>
+            `;
+          }
+
           const marker = new longdo.Marker(
             { lon: item.lng, lat: item.lat },
             {
               title: item.category,
-              icon: { html: markerHtml, offset: { x: 7, y: 7 } },
+              icon: { html: markerHtml, offset: isHeatmapMode && isAccident ? { x: 20, y: 20 } : { x: 7, y: 7 } },
               detail: `
-                <div style="color: #000; min-width: 200px;">
-                   <div style="font-weight:bold; color:blue; border-bottom:1px solid #ccc;">${item.category}</div>
-                   <div style="margin-top:4px;">${item.detail || '-'}</div>
-                   <div style="font-size:10px; color:#666; margin-top:4px;">${item.time} น. | กก.${item.div}</div>
+                <div style="color: #000; min-width: 200px; font-family: sans-serif;">
+                   <div style="font-weight:bold; color:#1e40af; border-bottom:1px solid #e2e8f0; padding-bottom:4px; margin-bottom:4px;">${item.category}</div>
+                   <div style="margin-top:4px; font-size:12px;">${item.detail || '-'}</div>
+                   <div style="font-size:10px; color:#64748b; margin-top:6px;">${item.time} น. | กก.${item.div} ส.ทล.${item.st}</div>
+                   ${item.category === 'ช่องทางพิเศษ' ? `
+                     <div style="margin-top:10px; border-top:1px dashed #cbd5e1; padding-top:8px;">
+                        <button 
+                          onclick="window.dispatchEvent(new CustomEvent('manual-close-lane', {detail: '${item.id}'}))"
+                          style="width:100%; padding:6px; background:#ef4444; color:white; border:none; border-radius:4px; font-size:10px; cursor:pointer; font-weight:bold; transition: background 0.2s;"
+                          onmouseover="this.style.background='#dc2626'"
+                          onmouseout="this.style.background='#ef4444'"
+                        >
+                           ยุติการแสดงผลหมุดนี้ (ค้าง)
+                        </button>
+                     </div>
+                   ` : ''}
                 </div>`
             }
           );
@@ -134,8 +162,26 @@ const LongdoMapViewer = ({ data, apiKey }) => {
 
   // อัปเดตหมุดเมื่อข้อมูลเปลี่ยน
   useEffect(() => {
-    if (status === 'Ready') updateMarkers();
-  }, [data, status]);
+    if (status === 'Ready') {
+      // Defer map rendering slightly to prevent blocking the UI layout transition
+      requestAnimationFrame(() => updateMarkers());
+    }
+  }, [data, status, currentView]);
+  
+  // 4. ฟัง Event สำหรับการสั่งปิดหมุดด้วยมือ
+  useEffect(() => {
+    const handleManualCloseEvent = (e) => {
+      if (onManualClose && e.detail) {
+        onManualClose(e.detail);
+        // ปิด Popup ทันทีที่กด
+        if (mapInstance.current) {
+          mapInstance.current.Popups.clear();
+        }
+      }
+    };
+    window.addEventListener('manual-close-lane', handleManualCloseEvent);
+    return () => window.removeEventListener('manual-close-lane', handleManualCloseEvent);
+  }, [onManualClose]);
 
   return (
     <div className="w-full h-full relative bg-slate-900 rounded-lg overflow-hidden" style={{ minHeight: '300px' }}>

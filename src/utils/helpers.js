@@ -60,3 +60,10 @@ export const parseCSV = (text) => {
     }, {});
   });
 };
+
+export const isHolidayPeriod = () => {
+  const now = new Date();
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  return (month === 12 && date >= 29) || (month === 1 && date <= 4);
+};
